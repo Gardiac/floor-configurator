@@ -42,6 +42,7 @@
     #glCanvas{position:absolute;inset:0}
     .handle{position:absolute;width:14px;height:14px;border-radius:50%;background:var(--accent);border:2px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.25);transform:translate(-50%,-50%);cursor:grab}
     #toast{position:fixed;right:16px;bottom:16px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:var(--shadow);color:var(--muted);font-size:12px;max-width:50ch;display:none}
+    #debug{position:fixed;left:16px;bottom:16px;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:var(--shadow);color:#7d5a3d;font-size:12px;max-width:50ch;display:none;white-space:pre-wrap}
     .split{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     .small{font-size:12px;color:var(--muted)}
     .pill{padding:6px 8px;border-radius:999px;background:#efe6dd;color:#7e5a3c;border:1px solid #e1d4c8;font-weight:600;font-size:11px}
@@ -69,9 +70,9 @@
       </div>
 
       <h2>Assets</h2>
-      <div class="row"><label>Room photo</label><input id="roomFile" type="file" accept="image/*" /></div>
+      <div class="row"><label>Room photo</label><input id="roomFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /></div>
       <div class="row split">
-        <div><label>Plank texture (file)</label><input id="texFile" type="file" accept="image/*" /></div>
+        <div><label>Plank texture (file)</label><input id="texFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /></div>
         <div><label>Plank texture (URL)</label><input id="texUrl" type="url" placeholder="https://…/plank.jpg" /></div>
       </div>
       <div class="row">
@@ -114,12 +115,15 @@
   </main>
 
   <div id="toast"></div>
+  <div id="debug"></div>
 
   <script>
   (function(){
     const $ = (id)=> document.getElementById(id);
     const toast = $('toast');
+    const debugEl = $('debug');
     function tip(msg){ toast.textContent = msg; toast.style.display = 'block'; setTimeout(()=> toast.style.display='none', 3000); }
+    function logDebug(msg){ if(!debugEl) return; if(msg){ debugEl.textContent = msg; debugEl.style.display='block'; } else { debugEl.textContent=''; debugEl.style.display='none'; } }
     function busy(on){ $('busy').style.display = on ? 'grid' : 'none'; }
 
     const roomFile = $('roomFile');
@@ -182,10 +186,20 @@
 
     function loadImage(file){
       return new Promise((resolve,reject)=>{
-        const img = new Image();
-        img.onload = ()=> resolve(img);
-        img.onerror = (e)=> reject(e);
-        img.src = URL.createObjectURL(file);
+        if (!file) return reject(new Error('No file provided'));
+        const isHeic = /heic|heif/i.test(file.type) || /\.hei[cf]$/i.test(file.name||'');
+        if (isHeic) return reject(new Error('HEIC/HEIF images are not supported by your browser. Please convert to JPG/PNG/WEBP.'));
+        const type = file.type || '';
+        if (!/^image\//.test(type)) return reject(new Error('Please choose an image file (JPG/PNG/WEBP).'));
+        const reader = new FileReader();
+        reader.onerror = ()=> reject(new Error('Could not read file.'));
+        reader.onload = ()=>{
+          const img = new Image();
+          img.onload = ()=> resolve(img);
+          img.onerror = ()=> reject(new Error('Unsupported image format. Try JPG/PNG/WEBP.'));
+          img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
       });
     }
     function loadImageURL(url){
@@ -497,9 +511,35 @@
     const num = (v)=> typeof v==='number' && isFinite(v);
     const clamp01 = (x)=> Math.max(0, Math.min(1, x));
 
-    roomFile.addEventListener('change', async (e)=>{ const f=e.target.files[0]; if(!f) return; const img=await loadImage(f); state.roomImage=img; drawRoom(); updateMesh(); render(); });
-    texFile.addEventListener('change',  async (e)=>{ const f=e.target.files[0]; if(!f) return; const img=await loadImage(f); setPlankFromImage(img); state.currentTextureUrl=''; });
-    btnLoadURL.addEventListener('click', ()=>{ const u=texUrl.value.trim(); if(!u){ tip('Enter a texture URL'); return; } state.currentTextureUrl = u; setPlankFromURL(u); });
+    roomFile.addEventListener('change', async (e)=>{
+      const f = e.target.files && e.target.files[0];
+      if(!f){ logDebug('No file selected.'); return; }
+      try{
+        const img = await loadImage(f);
+        state.roomImage = img;
+        drawRoom(); updateMesh(); render();
+        logDebug('');
+      }catch(err){
+        logDebug((err && err.message) || String(err));
+      }
+    });
+    texFile.addEventListener('change', async (e)=>{
+      const f = e.target.files && e.target.files[0];
+      if(!f){ logDebug('No texture selected.'); return; }
+      try{
+        const img = await loadImage(f);
+        setPlankFromImage(img);
+        logDebug('');
+      }catch(err){
+        logDebug((err && err.message) || String(err));
+      }
+    });
+    btnLoadURL.addEventListener('click', ()=>{
+      const u=texUrl.value.trim();
+      if(!u){ tip('Enter a texture URL'); return; }
+      state.currentTextureUrl = u;
+      setPlankFromURL(u);
+    });
 
     btnH.addEventListener('click', ()=>{ state.orientation='horizontal'; updateMesh(); render(); });
     btnV.addEventListener('click', ()=>{ state.orientation='vertical';   updateMesh(); render(); });
@@ -513,7 +553,12 @@
     btnAI.addEventListener('click', ()=> callRemote($('prompt').value.trim()));
     btnExport.addEventListener('click', exportPNG);
 
-    try { resize(); } catch(e){ console.error(e); tip(e.message||String(e)); }
+    function ensureReady(){ resize(); }
+    if (document.readyState === 'complete' || document.readyState === 'interactive'){
+      setTimeout(ensureReady, 0);
+    } else {
+      window.addEventListener('DOMContentLoaded', ensureReady);
+    }
   })();
   </script>
 </body>
