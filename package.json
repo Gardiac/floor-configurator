@@ -1,0 +1,12 @@
+{
+  "name": "ai-floor-configurator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "openai": "^4.52.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
