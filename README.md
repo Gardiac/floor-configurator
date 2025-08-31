@@ -1,17 +1,13 @@
-# AI Floor Configurator — v4
+# AI Floor Configurator — v4 (Netlify)
 
-Ready to deploy on **Netlify (Free)**.
+Includes:
+- `index.html` (robust preview, debug panel, self-test)
+- `netlify/functions/hello.js` (test function)
+- `netlify/functions/floor-chat.js` (OpenAI gpt-4o + tools + image input)
+- `netlify.toml`, `package.json`
 
 ## Deploy
-1) Put these files at the repo root:
-   - `index.html`
-   - `netlify.toml`
-   - `package.json`
-   - `netlify/functions/floor-chat.mjs`
-2) In Netlify → **Site settings → Environment variables** add `OPENAI_API_KEY`.
-3) **Deploys → Trigger deploy → Clear cache and deploy site**.
-4) Open your `.netlify.app` URL → upload a room photo + plank texture → click **Detect & Replace (AI)**.
-
-## Notes
-- Keep your key in env vars; never in the browser.
-- If texture URLs fail (CORS), upload the texture as a local file.
+1) Place all files at repo root.
+2) Netlify → Site settings → Environment variables → add `OPENAI_API_KEY`.
+3) Deploy → Trigger deploy → Clear cache and deploy site.
+4) Test `/.netlify/functions/hello` then use the app.

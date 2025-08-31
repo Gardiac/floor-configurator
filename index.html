@@ -36,13 +36,13 @@
     .btn{appearance:none;cursor:pointer;border:1px solid #d9c9b8;background:linear-gradient(180deg,#fff,#f6efe6);color:#5a3f2c;padding:10px 12px;border-radius:12px;font-weight:700;box-shadow:0 2px 0 #e8d8c8}
     .btn:hover{filter:brightness(1.03)}
     .btn.primary{background:linear-gradient(180deg,#e7a563,#d68a48);color:#fff;border-color:#c77c3a;box-shadow:0 2px 0 #b46e34}
-    #canvasWrap{position:relative;height:calc(100vh - 170px);background:#fff;border-radius:18px;border:1px solid var(--line);overflow:hidden}
+    #canvasWrap{position:relative;height:calc(100vh - 170px);min-height:360px;background:#fff;border-radius:18px;border:1px solid var(--line);overflow:hidden}
     canvas{display:block;width:100%;height:100%}
     #roomCanvas{position:absolute;inset:0}
     #glCanvas{position:absolute;inset:0}
     .handle{position:absolute;width:14px;height:14px;border-radius:50%;background:var(--accent);border:2px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.25);transform:translate(-50%,-50%);cursor:grab}
     #toast{position:fixed;right:16px;bottom:16px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:var(--shadow);color:var(--muted);font-size:12px;max-width:50ch;display:none}
-    #debug{position:fixed;left:16px;bottom:16px;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:var(--shadow);color:#7d5a3d;font-size:12px;max-width:50ch;display:none;white-space:pre-wrap}
+    #debug{position:fixed;left:16px;bottom:16px;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:var(--shadow);color:#7d5a3d;font-size:12px;max-width:60ch;display:none;white-space:pre-wrap}
     .split{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     .small{font-size:12px;color:var(--muted)}
     .pill{padding:6px 8px;border-radius:999px;background:#efe6dd;color:#7e5a3c;border:1px solid #e1d4c8;font-weight:600;font-size:11px}
@@ -98,6 +98,7 @@
 
       <h2>Export</h2>
       <div class="row"><button class="btn" id="btnExport">Download PNG</button></div>
+      <div class="row"><button class="btn" id="btnSelfTest">Self-test (draw demo)</button></div>
       <div class="small">Tip: Drag the four dots over the floor if you want to fine-tune the AI result.</div>
     </section>
 
@@ -212,7 +213,7 @@
     }
 
     const gl = glCanvas.getContext('webgl');
-    if(!gl){ alert('WebGL not available'); return; }
+    if(!gl){ logDebug('WebGL not available in this browser/tab. Try Chrome/Edge with hardware acceleration.'); alert('WebGL not available'); return; }
 
     function compileShader(type, src){
       const sh = gl.createShader(type); gl.shaderSource(sh, src); gl.compileShader(sh);
@@ -398,7 +399,7 @@
     }
 
     function setPlankFromImage(img){
-      try{ if(state.plankTexture) gl.deleteTexture(state.plankTexture); }catch(_){}
+      try{ if(state.plankTexture) gl.deleteTexture(state.plankTexture); }catch(_){ }
       state.plankTexture = textureFromImage(img);
       render();
     }
@@ -472,11 +473,13 @@
           textureUrl: state.currentTextureUrl || ''
         };
         const resp = await fetch(API_ENDPOINT, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+        if (!resp.ok){ const t = await resp.text(); throw new Error('HTTP '+resp.status+': '+t); }
         const data = await resp.json();
         if (Array.isArray(data.actions)) data.actions.forEach(runAction);
         if (data.text) tip(data.text);
       } catch(e){
         console.error(e); tip('AI error: ' + (e.message||String(e)));
+        logDebug('AI fetch failed: '+(e.message||e));
       } finally {
         busy(false);
       }
@@ -553,7 +556,17 @@
     btnAI.addEventListener('click', ()=> callRemote($('prompt').value.trim()));
     btnExport.addEventListener('click', exportPNG);
 
-    function ensureReady(){ resize(); }
+    document.getElementById('btnSelfTest').addEventListener('click', ()=>{
+      const test = document.createElement('canvas'); test.width = 1024; test.height = 768;
+      const tctx = test.getContext('2d');
+      tctx.fillStyle = '#e9edf7'; tctx.fillRect(0,0,1024,480);
+      tctx.fillStyle = '#b99774'; tctx.fillRect(0,480,1024,288);
+      const img = new Image();
+      img.onload=()=>{ state.roomImage=img; drawRoom(); updateMesh(); render(); logDebug('Self-test: demo room drawn. Now add a plank texture file to verify tiling.'); };
+      img.src = test.toDataURL('image/png');
+    });
+
+    function ensureReady(){ resize(); logDebug('Boot ✓\nWebGL: '+(gl?'yes':'no')+'\nCanvas: '+glCanvas.width+'×'+glCanvas.height); }
     if (document.readyState === 'complete' || document.readyState === 'interactive'){
       setTimeout(ensureReady, 0);
     } else {
