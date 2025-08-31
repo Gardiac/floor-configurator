@@ -84,7 +84,14 @@ export const handler = async (event) => {
       err?.response?.data?.error?.message ||
       err?.message ||
       "Unknown server error";
-    return { statusCode: status, headers: cors(), body: JSON.stringify({ error: message, status }) };
+    let retry = 0;
+    try {
+      const m = /in\s*(\d+(?:\.\d+)?)s/i.exec(message);
+      if (m) retry = Math.ceil(parseFloat(m[1]));
+      const m2 = /in\s*(\d+)m/i.exec(message);
+      if (m2) retry = Math.ceil(parseFloat(m2[1]) * 60);
+    } catch (_) {}
+    return { statusCode: status, headers: cors(), body: JSON.stringify({ error: message, status, retryAfterSeconds: retry }) };
   }
 };
 

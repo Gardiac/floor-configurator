@@ -99,23 +99,25 @@
     $('btnSelf').addEventListener('click', drawSelfTest);
     $('btnAuto').addEventListener('click', autoDetectFloor);
     $('btnAI').addEventListener('click', ()=> callRemote($('prompt').value.trim()));
-    $('btnH').addEventListener('click', ()=>{ state.orientation='horizontal'; mesh=null; render(); });
-    $('btnV').addEventListener('click', ()=>{ state.orientation='vertical'; mesh=null; render(); });
-    $('scale').addEventListener('input', e=>{ state.scale=+e.target.value; $('sv').textContent=state.scale.toFixed(2); mesh=null; render(); });
-    $('rot').addEventListener('input',   e=>{ state.rotationDeg=+e.target.value; $('rv').textContent=state.rotationDeg.toFixed(1)+'°'; mesh=null; render(); });
-    $('btnLoadURL').addEventListener('click', ()=>{ const u=$('texUrl').value.trim(); if(!u) return tip('Enter a texture URL'); state.textureUrl=u; loadImageURL(u).then(img=>{ state.plankImage=img; buildPlankAssets(); render(); }).catch(e=>{ tip('Could not load texture URL (CORS?)'); log(String(e)); }); });
+    $('btnH').addEventListener('click', ()=>{ state.orientation='horizontal'; mesh=null; autoFitTexture(); render(); });
+    $('btnV').addEventListener('click', ()=>{ state.orientation='vertical'; mesh=null; autoFitTexture(); render(); });
+    $('scale').addEventListener('input', e=>{ state.scale=+e.target.value; $('sv').textContent=state.scale.toFixed(2); mesh=null; autoFitTexture(); render(); });
+    $('rot').addEventListener('input',   e=>{ state.rotationDeg=+e.target.value; $('rv').textContent=state.rotationDeg.toFixed(1)+'°'; mesh=null; autoFitTexture(); render(); });
+    $('btnLoadURL').addEventListener('click', ()=>{ const u=$('texUrl').value.trim(); if(!u) return tip('Enter a texture URL'); state.textureUrl=u; loadImageURL(u).then(img=>{ state.plankImage=img; buildPlankAssets(); autoFitTexture(); render(); }).catch(e=>{ tip('Could not load texture URL (CORS?)'); log(String(e)); }); });
 
     $('roomFile').addEventListener('change', async e=>{
       const f=e.target.files?.[0]; if(!f) return;
-      try{ const img=await readImage(f); state.roomImage=img; drawRoom(); render(); tip('Room loaded'); }catch(err){ log('Room load error: '+(err?.message||err)); }
+      try{
+        if (Date.now() < aiCooldownUntil) { tip('AI cooling down; using Auto‑detect.'); autoDetectFloor(); return; } const img=await readImage(f); state.roomImage=img; drawRoom(); autoFitTexture(); render(); tip('Room loaded'); }catch(err){ log('Room load error: '+(err?.message||err)); }
     });
     $('texFile').addEventListener('change', async e=>{
       const f=e.target.files?.[0]; if(!f) return;
-      try{ const img=await readImage(f); state.plankImage=img; buildPlankAssets(); render(); tip('Texture ready'); }catch(err){ log('Texture load error: '+(err?.message||err)); }
+      try{
+        if (Date.now() < aiCooldownUntil) { tip('AI cooling down; using Auto‑detect.'); autoDetectFloor(); return; } const img=await readImage(f); state.plankImage=img; buildPlankAssets(); autoFitTexture(); render(); tip('Texture ready'); }catch(err){ log('Texture load error: '+(err?.message||err)); }
     });
 
     // --- sizing
-    function resize(){ const r=wrap.getBoundingClientRect(); rc.width=r.width; rc.height=r.height; gc.width=r.width; gc.height=r.height; if(gl) gl.viewport(0,0,gc.width,gc.height); drawRoom(); render(); }
+    function resize(){ const r=wrap.getBoundingClientRect(); rc.width=r.width; rc.height=r.height; gc.width=r.width; gc.height=r.height; if(gl) gl.viewport(0,0,gc.width,gc.height); drawRoom(); autoFitTexture(); render(); }
     window.addEventListener('resize', resize);
 
     // --- room draw
@@ -263,7 +265,7 @@
     handles.forEach((el,i)=>{
       let drag=false; el.addEventListener('pointerdown',e=>{drag=true; el.setPointerCapture(e.pointerId);});
       el.addEventListener('pointerup',e=>{drag=false; el.releasePointerCapture(e.pointerId);});
-      el.addEventListener('pointermove',e=>{ if(!drag) return; const r=gc.getBoundingClientRect(); const x=(e.clientX-r.left)/r.width, y=(e.clientY-r.top)/r.height; state.quad[i]={x:Math.max(0,Math.min(1,x)), y:Math.max(0,Math.min(1,y))}; mesh=null; syncHandles(); render(); });
+      el.addEventListener('pointermove',e=>{ if(!drag) return; const r=gc.getBoundingClientRect(); const x=(e.clientX-r.left)/r.width, y=(e.clientY-r.top)/r.height; state.quad[i]={x:Math.max(0,Math.min(1,x)), y:Math.max(0,Math.min(1,y))}; mesh=null; syncHandles(); autoFitTexture(); render(); });
     });
 
     // export
@@ -286,19 +288,33 @@
       for(let y=yStart;y<yEnd;y++){ let s=0; for(let x=0;x<sw;x++) s+=mag[y*sw+x]; row[y]=s/sw; }
       let yTop=yStart,best=-1; for(let y=yStart;y<yEnd;y++){ if(row[y]>best){ best=row[y]; yTop=y; } }
       const tl={x:.18,y:(yTop/sc)/H}, tr={x:.82,y:(yTop/sc)/H}, bl={x:.08,y:.96}, br={x:.92,y:.96};
-      state.quad=[tl,tr,br,bl]; mesh=null; syncHandles(); render(); tip('Auto-detect done (fallback).');
+      state.quad=[tl,tr,br,bl]; mesh=null; syncHandles(); autoFitTexture(); render(); tip('Auto-detect done (fallback).');
     }
 
     // AI call with quota/auth fallback
+    let aiCooldownUntil = 0;
+    function disableAI(seconds){
+      aiCooldownUntil = Date.now() + seconds*1000;
+      const btn = document.getElementById('btnAI');
+      btn.disabled = true; btn.textContent = 'AI (cooling down)';
+      setTimeout(()=>{
+        const left = aiCooldownUntil - Date.now();
+        if (left <= 0){ btn.disabled = false; btn.textContent = 'Detect & Replace (AI)'; }
+      }, Math.max(1000, seconds*1000));
+    }
     async function callRemote(userText){
       if(!state.roomImage){ tip('Upload a room photo first'); return; }
       tip('Detecting floor…');
       try{
+        if (Date.now() < aiCooldownUntil) { tip('AI cooling down; using Auto‑detect.'); autoDetectFloor(); return; }
         const roomImageDataURL = await toDataURL(state.roomImage, 1024);
         const payload={ messages:[{role:'user',content:userText||'Detect the floor polygon'}], roomImageDataURL, textureUrl: state.textureUrl || '' };
         const resp=await fetch('/.netlify/functions/floor-chat',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-        const text = await resp.text(); let data={}; try{ data=JSON.parse(text); }catch(_){};
-        if(!resp.ok){ const msg=data?.error || text || ('HTTP '+resp.status); throw new Error(msg); }
+        const text = await resp.text(); let data={}; try{
+        if (Date.now() < aiCooldownUntil) { tip('AI cooling down; using Auto‑detect.'); autoDetectFloor(); return; } data=JSON.parse(text); }catch(_){};
+        if(!resp.ok){ const msg=data?.error || text || ('HTTP '+resp.status);
+        if(resp.status===429){ const secs=parseRetryAfter(msg); disableAI(secs||300); }
+        throw new Error(msg); }
         if(Array.isArray(data.actions)) data.actions.forEach(runAction);
         if (data.text) tip(data.text);
       }catch(e){
@@ -344,6 +360,17 @@
       return [ top[0], top[1], bottom[1], bottom[0] ];
     }
     function runAction(action){
+      function parseRetryAfter(msg){
+        try{
+          const m = /in\s*(\d+(?:\.\d+)?)s/i.exec(msg) || /in\s*(\d+)m/i.exec(msg);
+          if(m && m[1]){
+            if('s' in (m.groups||{})) return Math.ceil(parseFloat(m[1]));
+            return Math.ceil(parseFloat(m[1])*60);
+          }
+        }catch(_){}
+        return 300; // 5 minutes default
+      }
+
       if(!action || action.name!=='apply_floor_config') return;
       const a=action.arguments||{}; log('AI action\n'+JSON.stringify(a,null,2)); // normalized & mapped to canvas after this
       if (Array.isArray(a.floorQuad) && a.floorQuad.length===4){
@@ -354,9 +381,9 @@
       if (typeof a.scale==='number') state.scale=a.scale;
       if (typeof a.rotationDegrees==='number') state.rotationDeg=a.rotationDegrees;
       if (a.orientation) state.orientation=(a.orientation==='vertical')?'vertical':'horizontal';
-      if (a.textureUrl){ state.textureUrl=String(a.textureUrl); loadImageURL(state.textureUrl).then(img=>{ state.plankImage=img; buildPlankAssets(); render(); }); }
+      if (a.textureUrl){ state.textureUrl=String(a.textureUrl); loadImageURL(state.textureUrl).then(img=>{ state.plankImage=img; buildPlankAssets(); autoFitTexture(); render(); }); }
       $('sv').textContent=state.scale.toFixed(2); $('rv').textContent=state.rotationDeg.toFixed(1)+'°';
-      render();
+      autoFitTexture(); render();
     }
 
     function clamp01(x){ return Math.max(0,Math.min(1,x)); }
@@ -364,7 +391,7 @@
     function toDataURL(img, maxSide){
       return new Promise((resolve)=>{
         const w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
-        const MAX = maxSide || 1600; const s=Math.min(1, MAX/Math.max(w,h));
+        const MAX = maxSide || 768; const s=Math.min(1, MAX/Math.max(w,h));
         const c=document.createElement('canvas'); c.width=Math.round(w*s); c.height=Math.round(h*s);
         c.getContext('2d').drawImage(img,0,0,c.width,c.height);
         resolve(c.toDataURL('image/jpeg',0.9));
@@ -374,14 +401,100 @@
     function drawSelfTest(){
       const c=document.createElement('canvas'); c.width=1024; c.height=768; const cx=c.getContext('2d');
       cx.fillStyle='#e9edf7'; cx.fillRect(0,0,1024,480); cx.fillStyle='#b99774'; cx.fillRect(0,480,1024,288);
-      const img=new Image(); img.onload=()=>{ state.roomImage=img; drawRoom(); mesh=null; render(); tip('Self-test drawn'); }; img.src=c.toDataURL('image/png');
+      const img=new Image(); img.onload=()=>{ state.roomImage=img; drawRoom(); mesh=null; autoFitTexture(); render(); tip('Self-test drawn'); }; img.src=c.toDataURL('image/png');
+    }
+
+    // --- Auto-Fit: automatically estimate board angle and scale
+    function pointInPoly(pt, poly){
+      let inside=false;
+      for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+        const xi=poly[i].x, yi=poly[i].y, xj=poly[j].x, yj=poly[j].y;
+        const intersect=((yi>pt.y)!=(yj>pt.y)) && (pt.x < (xj-xi)*(pt.y-yi)/(yj-yi+1e-6)+xi);
+        if(intersect) inside=!inside;
+      }
+      return inside;
+    }
+
+    function detectBoardAngle(){
+      if (!state.roomImage) return null;
+      const W = rc.width, H = rc.height;
+      const DOWN = 320; const s = Math.min(1, DOWN / Math.max(W,H));
+      const sw = Math.max(64, Math.round(W*s)), sh = Math.max(64, Math.round(H*s));
+      const c=document.createElement('canvas'); c.width=sw; c.height=sh; const cx=c.getContext('2d');
+      cx.drawImage(rc, 0, 0, sw, sh);
+      const img=cx.getImageData(0,0,sw,sh), d=img.data;
+      const gx = new Float32Array(sw*sh), gy = new Float32Array(sw*sh), mag = new Float32Array(sw*sh);
+
+      // scale quad to downsampled space
+      const q = state.quad.map(p=>({x:p.x*W*s, y:p.y*H*s}));
+
+      // fast Sobel
+      const getGray = (x,y)=>{
+        const i=(y*sw + x)*4; return d[i]*.299 + d[i+1]*.587 + d[i+2]*.114;
+      };
+      for(let y=1;y<sh-1;y++){
+        for(let x=1;x<sw-1;x++){
+          const p={x,y};
+          if(!pointInPoly(p,q)) continue;
+          const tl=getGray(x-1,y-1), tc=getGray(x,y-1), tr=getGray(x+1,y-1);
+          const ml=getGray(x-1,y  ), mc=getGray(x,y  ), mr=getGray(x+1,y  );
+          const bl=getGray(x-1,y+1), bc=getGray(x,y+1), br=getGray(x+1,y+1);
+          const sx = -tl + tr - 2*ml + 2*mr - bl + br;
+          const sy =  tl + 2*tc + tr - bl - 2*bc - br;
+          const idx=y*sw+x;
+          gx[idx]=sx; gy[idx]=sy; mag[idx]=Math.hypot(sx,sy);
+        }
+      }
+      // orientation histogram (0..pi)
+      const bins=90; const hist=new Float32Array(bins);
+      for(let i=0;i<mag.length;i++){
+        const m=mag[i]; if(m<5) continue;
+        let ang=Math.atan2(gy[i], gx[i]); // -pi..pi
+        if(ang<0) ang+=Math.PI*2;
+        if(ang>Math.PI) ang-=Math.PI; // 0..pi
+        const b=Math.min(bins-1, Math.floor(ang/Math.PI*bins));
+        hist[b]+=m;
+      }
+      // find peak
+      let bi=0, best=-1; for(let i=0;i<bins;i++){ if(hist[i]>best){best=hist[i]; bi=i;} }
+      if(best<=0) return null;
+      const angle = (bi + 0.5) * (Math.PI / bins); // gradient angle
+      const boardDir = angle + Math.PI/2; // boards run along perpendicular to gradient
+      let deg = boardDir * 180/Math.PI;
+      // normalize to [-180,180]
+      while(deg>180) deg-=360; while(deg<-180) deg+=360;
+      return deg;
+    }
+
+    function autoFitTexture(){
+      // Estimate rotation relative to the quad's U axis (top edge)
+      const W = gc.width, H = gc.height;
+      const qpx = state.quad.map(p=>({x:p.x*W, y:p.y*H}));
+      const topAngle = Math.atan2(qpx[1].y - qpx[0].y, qpx[1].x - qpx[0].x) * 180/Math.PI;
+      const boardDeg = detectBoardAngle();
+      if (boardDeg != null && isFinite(boardDeg)){
+        let rot = boardDeg - topAngle;
+        while(rot>180) rot-=360; while(rot<-180) rot+=360;
+        // Keep within slider bounds
+        if (rot > 90) rot -= 180;
+        if (rot < -90) rot += 180;
+        state.rotationDeg = Math.max(-90, Math.min(90, rot));
+      }
+      // Heuristic scale: aim for ~10 repeats across bottom edge
+      const bottomLen = Math.hypot(qpx[2].x - qpx[3].x, qpx[2].y - qpx[3].y);
+      const targetRepeats = Math.max(7, Math.min(14, Math.round(bottomLen / 120))); // 120px per plank heuristic
+      state.scale = targetRepeats;
+      // Sync UI
+      document.getElementById('sv').textContent = state.scale.toFixed(2);
+      document.getElementById('rv').textContent = state.rotationDeg.toFixed(1)+'°';
+      mesh=null; autoFitTexture(); render();
     }
 
     // boot
     function ensureReady(){
       const r=wrap.getBoundingClientRect(); rc.width=r.width; rc.height=r.height; gc.width=r.width; gc.height=r.height;
       if(gl){ buildLightTexture(); }
-      syncHandles(); drawRoom(); render();
+      syncHandles(); drawRoom(); autoFitTexture(); render();
       log('Boot ✓\nMode: '+(gl?'WebGL':'2D fallback')+'\nCanvas: '+gc.width+'×'+gc.height);
     }
     if(document.readyState!=='loading') setTimeout(ensureReady,0); else window.addEventListener('DOMContentLoaded', ensureReady);
