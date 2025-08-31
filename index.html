@@ -313,7 +313,7 @@
         const text = await resp.text(); let data={}; try{
         if (Date.now() < aiCooldownUntil) { tip('AI cooling down; using Auto‑detect.'); autoDetectFloor(); return; } data=JSON.parse(text); }catch(_){};
         if(!resp.ok){ const msg=data?.error || text || ('HTTP '+resp.status);
-        if(resp.status===429){ const retry = (data && data.retryAfterSeconds) ? data.retryAfterSeconds : parseRetryAfter(msg); disableAI(retry||300); }
+        if(resp.status===429){ const retry = (data && data.retryAfterSeconds) ? data.retryAfterSeconds : 300; disableAI(retry); }
         throw new Error(msg); }
         if(Array.isArray(data.actions)) data.actions.forEach(runAction);
         if (data.text) tip(data.text);
@@ -360,7 +360,6 @@
       return [ top[0], top[1], bottom[1], bottom[0] ];
     }
     function runAction(action){
-      function parseRetryAfter(msg){ try{ const m = /in\s*(\d+(?:\.\d+)?)s/i.exec(msg) || /in\s*(\d+)m/i.exec(msg); if(m && m[1]){ return /m/.test(m[0]) ? Math.ceil(parseFloat(m[1])*60) : Math.ceil(parseFloat(m[1])); } }catch(_){ } return 300; }
       if(!action || action.name!=='apply_floor_config') return;
       const a=action.arguments||{}; log('AI action\n'+JSON.stringify(a,null,2)); // normalized & mapped to canvas after this
       if (Array.isArray(a.floorQuad) && a.floorQuad.length===4){
