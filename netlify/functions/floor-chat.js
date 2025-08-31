@@ -41,11 +41,17 @@ export const handler = async (event) => {
       }
     }];
 
-    const userParts = [];
-    if (roomImageDataURL) userParts.push({ type: "input_image", image_url: roomImageDataURL });
-    const last = (messages[messages.length - 1]?.content) || "Detect the floor polygon and suggested tiling params.";
-    userParts.push({ type: "input_text", text: last });
-    if (textureUrl) userParts.push({ type: "input_text", text: `Texture URL hint: ${textureUrl}` });
+    // Build a single user message with an array of content parts
+    const parts = [];
+    const lastText = (messages[messages.length - 1]?.content) || "Detect the floor polygon and suggest tiling params.";
+    parts.push({ type: "text", text: lastText });
+
+    if (roomImageDataURL) {
+      parts.push({ type: "image_url", image_url: { url: roomImageDataURL } });
+    }
+    if (textureUrl) {
+      parts.push({ type: "text", text: `Texture URL hint: ${textureUrl}` });
+    }
 
     const chat = await client.chat.completions.create({
       model,
@@ -54,9 +60,11 @@ export const handler = async (event) => {
 `You are an AI floor configurator. Respond with ONE tool call (apply_floor_config) including:
 - floorQuad: 4 points normalized [0..1], clockwise from top-left (floor only).
 - orientation, rotationDegrees, scale, randomness, optional textureUrl.` },
-        { role: "user", content: userParts }
+        { role: "user", content: parts }
       ],
-      tools, tool_choice: "auto", temperature: 0.2
+      tools,
+      tool_choice: "auto",
+      temperature: 0.2
     });
 
     const m = chat.choices?.[0]?.message;

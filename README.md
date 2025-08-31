@@ -1,15 +1,13 @@
-# AI Floor Configurator — v4 (quota-safe)
+# AI Floor Configurator — v4 (vision fix)
 
-- Front-end: WebGL overlay with 2D fallback, NPOT texture fix, AI fallback to basic detector on 429/401.
-- Functions: `floor-chat.js` bubbles real HTTP status, defaults to `gpt-4o-mini` to lower cost.
+**Fixes**: 400 Invalid value 'input_image' → uses `image_url` parts per Chat Completions multimodal spec.
+
+- Front-end: same as quota-safe build (2D fallback + POT textures + auto fallback on 429).
+- Functions: `floor-chat.js` now sends messages with content parts:
+  - `{ type: "text", text: "..." }`
+  - `{ type: "image_url", image_url: { url: <dataURL> } }`
 
 ## Deploy
-1) Put files at repo root (see tree).  
-2) Netlify → Site settings → Environment variables:
-   - `OPENAI_API_KEY` = your key
-   - (optional) `MODEL` = `gpt-4o` or `gpt-4o-mini`
+1) Replace files at repo root.
+2) Netlify → Env vars: `OPENAI_API_KEY` (and optionally `MODEL=gpt-4o-mini`).
 3) Deploys → Clear cache and deploy.
-
-## Test
-- Visit `/.netlify/functions/hello` → JSON ok.
-- Self-test → demo shows. Upload texture → tiles. Upload room → AI detect (or auto-detect fallback if quota).
