@@ -308,11 +308,39 @@
       }
     }
 
+    function normalizeQuad(q){
+      // q can be [{x,y}...] in: normalized [0..1], percentages [0..100], or pixels [0..W/H]
+      if (!Array.isArray(q) || q.length !== 4) return null;
+      // Extract arrays
+      const xs = q.map(p=>+p.x), ys = q.map(p=>+p.y);
+      const maxX = Math.max.apply(null, xs), maxY = Math.max.apply(null, ys);
+      // Decide the scale
+      if (maxX <= 1.5 && maxY <= 1.5) {
+        // Already normalized
+        return q.map(p=>({ x: clamp01(+p.x), y: clamp01(+p.y) }));
+      } else if (maxX <= 100.5 && maxY <= 100.5) {
+        // Percentages
+        return q.map(p=>({ x: clamp01(+p.x/100), y: clamp01(+p.y/100) }));
+      } else {
+        // Pixels relative to the displayed canvas (roomRect)
+        const W = gc.width, H = gc.height;
+        return q.map(p=>({ x: clamp01(+p.x / W), y: clamp01(+p.y / H) }));
+      }
+    }
+    function sortQuadClockwise(q){
+      // Sort arbitrary 4 points to [TL, TR, BR, BL]
+      const pts = q.map(p=>({x:p.x, y:p.y}));
+      pts.sort((a,b)=> a.y===b.y ? a.x-b.x : a.y-b.y); // top two first
+      const top = pts.slice(0,2).sort((a,b)=>a.x-b.x);
+      const bottom = pts.slice(2).sort((a,b)=>a.x-b.x);
+      return [ top[0], top[1], bottom[1], bottom[0] ];
+    }
     function runAction(action){
       if(!action || action.name!=='apply_floor_config') return;
-      const a=action.arguments||{};
+      const a=action.arguments||{}; log('AI action\n'+JSON.stringify(a,null,2));
       if (Array.isArray(a.floorQuad) && a.floorQuad.length===4){
-        state.quad = a.floorQuad.map(p=>({ x:clamp01(+p.x), y:clamp01(+p.y) }));
+        let q = normalizeQuad(a.floorQuad);
+        if (q){ q = sortQuadClockwise(q); state.quad = q; }
         syncHandles(); mesh=null;
       }
       if (typeof a.scale==='number') state.scale=a.scale;
