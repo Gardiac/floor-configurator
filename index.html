@@ -131,22 +131,35 @@
     }
 
     // build texture + 2D pattern from the same POT source
-    function buildPlankAssets(){
-      if(!state.plankImage) return;
-      const pot = makePOTCanvas(state.plankImage);
-      state.plankPattern = gc.getContext('2d').createPattern(pot, 'repeat');
-      if (gl){
-        const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
-        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, pot);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.generateMipmap(gl.TEXTURE_2D);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
-        state.plankTexture = tex;
-      }
-    }
+function buildPlankAssets(){
+  if (!state.plankImage) return;
+
+  // Make NPOT-safe plank source
+  const pot = makePOTCanvas(state.plankImage);
+
+  // 2D fallback pattern — use a guaranteed 2D context (room canvas)
+  try {
+    const patternCtx = rc.getContext('2d'); // rc is always 2D
+    state.plankPattern = patternCtx ? patternCtx.createPattern(pot, 'repeat') : null;
+  } catch (_) {
+    state.plankPattern = null;
+  }
+
+  // WebGL texture (only if WebGL is active)
+  if (gl) {
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, pot);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    state.plankTexture = tex;
+  }
+}
+
 
     // --- WebGL pipeline (simple; just to verify texture covers quad)
     let prog=null, a_pos=0, a_uv=0, u_res=0, vbo=0, tbo=0, mesh=null;
@@ -195,6 +208,16 @@
       // Transform pattern by rotation/scale around quad center
       const cx=(state.quad[0].x*w + state.quad[2].x*w)/2, cy=(state.quad[0].y*h + state.quad[2].y*h)/2;
       ctx.translate(cx,cy); ctx.rotate(state.rotationDeg*Math.PI/180); ctx.scale(state.scale,state.scale); ctx.translate(-cx,-cy);
+	  if (!state.plankPattern && state.plankImage) {
+  const pot = makePOTCanvas(state.plankImage);
+  const patternCtx = rc.getContext('2d');
+  state.plankPattern = patternCtx ? patternCtx.createPattern(pot, 'repeat') : null;
+}
+if (!state.plankPattern) {
+  log('Pattern creation failed (likely CORS-tainted image). Use a local JPG/PNG/WEBP.');
+  return;
+}
+
       ctx.fillStyle=state.plankPattern; ctx.fillRect(0,0,w,h);
       ctx.restore();
     }
