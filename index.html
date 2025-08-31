@@ -327,6 +327,14 @@
         return q.map(p=>({ x: clamp01(+p.x / W), y: clamp01(+p.y / H) }));
       }
     }
+    function imageToCanvasNorm(p){
+      // Map normalized image coords (0..1 in the AI-analyzed image) to normalized canvas coords
+      const W = gc.width, H = gc.height;
+      const rr = state.roomRect || {x:0,y:0,w:W,h:H};
+      const cx = (rr.x + p.x * rr.w) / W;
+      const cy = (rr.y + p.y * rr.h) / H;
+      return { x: clamp01(cx), y: clamp01(cy) };
+    }
     function sortQuadClockwise(q){
       // Sort arbitrary 4 points to [TL, TR, BR, BL]
       const pts = q.map(p=>({x:p.x, y:p.y}));
@@ -337,10 +345,10 @@
     }
     function runAction(action){
       if(!action || action.name!=='apply_floor_config') return;
-      const a=action.arguments||{}; log('AI action\n'+JSON.stringify(a,null,2));
+      const a=action.arguments||{}; log('AI action\n'+JSON.stringify(a,null,2)); // normalized & mapped to canvas after this
       if (Array.isArray(a.floorQuad) && a.floorQuad.length===4){
         let q = normalizeQuad(a.floorQuad);
-        if (q){ q = sortQuadClockwise(q); state.quad = q; }
+        if (q){ q = q.map(imageToCanvasNorm); q = sortQuadClockwise(q); state.quad = q; }
         syncHandles(); mesh=null;
       }
       if (typeof a.scale==='number') state.scale=a.scale;
