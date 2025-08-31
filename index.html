@@ -3,14 +3,11 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AI Floor Configurator — v4 (quota-safe)</title>
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;700&display=swap" rel="stylesheet">
+  <title>AI Floor Configurator — v4</title>
   <style>
     :root{ --bg:#f6f3ef; --text:#2b241e; --muted:#6f5f52; --panel:#fffdf9; --accent:#b87333; --line:#e6ded5; --shadow:0 10px 24px rgba(45,33,23,.08); }
     *{box-sizing:border-box} html,body{height:100%}
-    body{margin:0;background:var(--bg);color:var(--text);font-family:Poppins,system-ui,Segoe UI,Roboto,Helvetica,Arial}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial}
     header{position:sticky;top:0;z-index:10;display:flex;gap:12px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line);background:#fff}
     header b{font-weight:700}
     main{display:grid;grid-template-columns:340px 1fr;gap:16px;padding:16px}
@@ -27,7 +24,7 @@
     #roomCanvas{position:absolute;inset:0;z-index:0}
     #glCanvas{position:absolute;inset:0;z-index:1;background:transparent}
     .handle{position:absolute;width:14px;height:14px;border-radius:50%;background:var(--accent);border:2px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.25);transform:translate(-50%,-50%);cursor:grab;z-index:2}
-    #toast{position:fixed;right:16px;bottom:16px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:var(--shadow);color:var(--muted);font-size:12px;max-width:50ch;display:none}
+    #toast{position:fixed;right:16px;bottom:16px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:var(--shadow);color:#666;font-size:12px;max-width:50ch;display:none}
     #debug{position:fixed;left:16px;bottom:16px;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:var(--shadow);color:#7d5a3d;font-size:12px;max-width:60ch;display:none;white-space:pre-wrap}
     .small{font-size:12px;color:var(--muted)}
   </style>
@@ -46,9 +43,9 @@
       <div class="row"><label>Plank texture (URL)</label><input id="texUrl" type="url" placeholder="https://…/plank.jpg" /><button class="btn" id="btnLoadURL" style="flex:0 0 auto">Load</button></div>
 
       <h3 style="margin:12px 0 8px;">AI & Detection</h3>
-      <div class="row"><input id="prompt" type="text" placeholder="e.g., Replace the floor using the texture, rotate 2°, horizontal boards" /></div>
+      <div class="row"><input id="prompt" type="text" placeholder="e.g., Replace the floor using the texture, rotate 2°" /></div>
       <div class="row"><button class="btn primary" id="btnAI">Detect & Replace (AI)</button><button class="btn" id="btnAuto">Auto‑detect (basic)</button><button class="btn" id="btnSelf">Self‑test</button></div>
-      <div class="small">If AI is unavailable (quota/auth), the app automatically runs the basic detector so customers still see results.</div>
+      <div class="small">If AI is unavailable (quota/auth), the app auto-runs the basic detector so customers still get a result.</div>
 
       <h3 style="margin:12px 0 8px;">Layout</h3>
       <div class="row"><label>Scale <span id="sv">1.00</span></label><input id="scale" type="range" min="0.2" max="4" step="0.01" value="1" /></div>
@@ -76,6 +73,10 @@
 
   <script>
   (function(){
+    // persistent AI cooldown across reloads
+    let aiCooldownUntil = 0;
+    const COOLDOWN_KEY = 'aiCooldownUntil';
+
     const $ = (id)=>document.getElementById(id);
     const toast=$('toast'), debug=$('debug'), modeTag=$('modeTag');
     function tip(m){ toast.textContent=m; toast.style.display='block'; setTimeout(()=>toast.style.display='none',3000); }
@@ -84,22 +85,23 @@
 
     const wrap=$('canvasWrap'), rc=$('roomCanvas'), gc=$('glCanvas'), rctx=rc.getContext('2d');
     const state={
-      roomImage:null,
-      plankImage:null,
-      plankPattern:null,
-      plankTexture:null,
+      roomImage:null, plankImage:null, plankPattern:null, plankTexture:null,
       quad:[{x:.2,y:.68},{x:.8,y:.68},{x:.76,y:.92},{x:.24,y:.92}],
       roomRect:{x:0,y:0,w:0,h:0},
       scale:1, rotationDeg:0, orientation:'horizontal',
       textureUrl:'',
     };
 
-    // --- listeners early
+    // listeners
     $('btnPing').addEventListener('click', ()=> alert('JS running ✓'));
     $('btnSelf').addEventListener('click', drawSelfTest);
     $('btnAuto').addEventListener('click', autoDetectFloor);
-    $('btnAI').addEventListener('click', ()=> callRemote($('prompt').value.trim()));
-    $('btnH').addEventListener('click', ()=>{ state.orientation='horizontal'; mesh=null; autoFitTexture(); render(); });
+    $('btnAI').addEventListener('click', ()=>{
+      const left = aiCooldownUntil - Date.now();
+      if (left > 0){ tip('AI cooling down; using Auto‑detect.'); autoDetectFloor(); return; }
+      callRemote($('prompt').value.trim());
+    });
+    $('btnH').addEventListener('click', ()=>{ state.orientation='horizontal'; mesh=null; render(); });
     $('btnV').addEventListener('click', ()=>{ state.orientation='vertical'; mesh=null; render(); });
     $('scale').addEventListener('input', e=>{ state.scale=+e.target.value; $('sv').textContent=state.scale.toFixed(2); mesh=null; render(); });
     $('rot').addEventListener('input',   e=>{ state.rotationDeg=+e.target.value; $('rv').textContent=state.rotationDeg.toFixed(1)+'°'; mesh=null; render(); });
@@ -107,20 +109,41 @@
 
     $('roomFile').addEventListener('change', async e=>{
       const f=e.target.files?.[0]; if(!f) return;
-      try{
-        if (Date.now() < aiCooldownUntil) { tip('AI cooling down; using Auto‑detect.'); autoDetectFloor(); return; } const img=await readImage(f); state.roomImage=img; drawRoom(); render(); tip('Room loaded'); }catch(err){ log('Room load error: '+(err?.message||err)); }
+      try{ const img=await readImage(f); state.roomImage=img; drawRoom(); render(); tip('Room loaded'); }catch(err){ log('Room load error: '+(err?.message||err)); }
     });
     $('texFile').addEventListener('change', async e=>{
       const f=e.target.files?.[0]; if(!f) return;
-      try{
-        if (Date.now() < aiCooldownUntil) { tip('AI cooling down; using Auto‑detect.'); autoDetectFloor(); return; } const img=await readImage(f); state.plankImage=img; buildPlankAssets(); render(); tip('Texture ready'); }catch(err){ log('Texture load error: '+(err?.message||err)); }
+      try{ const img=await readImage(f); state.plankImage=img; buildPlankAssets(); render(); tip('Texture ready'); }catch(err){ log('Texture load error: '+(err?.message||err)); }
     });
 
-    // --- sizing
+    function setCooldown(seconds){
+      aiCooldownUntil = Date.now() + (seconds*1000);
+      try{ localStorage.setItem(COOLDOWN_KEY, String(aiCooldownUntil)); }catch(_){}
+      const btn = $('btnAI'); if (btn){ btn.disabled = true; btn.textContent = 'AI (cooling down)'; }
+      scheduleCooldownCheck();
+    }
+    function scheduleCooldownCheck(){
+      const btn = $('btnAI');
+      const tick = ()=>{
+        const left = aiCooldownUntil - Date.now();
+        if (left <= 0){
+          if (btn){ btn.disabled = false; btn.textContent = 'Detect & Replace (AI)'; }
+        } else {
+          if (btn){ btn.disabled = true; btn.textContent = 'AI (cooling down)'; }
+          setTimeout(tick, Math.min(30000, left));
+        }
+      };
+      setTimeout(tick, 1000);
+    }
+    function restoreCooldown(){
+      try{ const v = localStorage.getItem(COOLDOWN_KEY); if (v){ aiCooldownUntil = parseInt(v,10) || 0; if (Date.now() < aiCooldownUntil) scheduleCooldownCheck(); } }catch(_){}
+    }
+
+    // sizing
     function resize(){ const r=wrap.getBoundingClientRect(); rc.width=r.width; rc.height=r.height; gc.width=r.width; gc.height=r.height; if(gl) gl.viewport(0,0,gc.width,gc.height); drawRoom(); render(); }
     window.addEventListener('resize', resize);
 
-    // --- room draw
+    // room draw
     function drawRoom(){
       const w=rc.width,h=rc.height; rctx.clearRect(0,0,w,h);
       if(!state.roomImage) return;
@@ -131,7 +154,7 @@
       buildLightTexture();
     }
 
-    // --- image helpers
+    // image helpers
     function readImage(file){
       return new Promise((res,rej)=>{
         const rd=new FileReader(); rd.onerror=()=>rej(new Error('read fail'));
@@ -146,13 +169,13 @@
       });
     }
 
-    // --- WebGL or 2D fallback
+    // WebGL or 2D fallback
     const gl = gc.getContext('webgl', { alpha:true, premultipliedAlpha:true, antialias:true });
     modeTag.textContent = gl ? '(WebGL)' : '(2D fallback)';
     if (gl) gl.clearColor(0,0,0,0);
 
-    // POT helper (avoid black texture when REPEAT)
-    function toPOT(n){ return Math.pow(2, Math.max(6, Math.ceil(Math.log2(Math.max(1,n))))); } // min 64
+    // POT helper
+    function toPOT(n){ return Math.pow(2, Math.max(6, Math.ceil(Math.log2(Math.max(1,n))))); }
     function makePOTCanvas(img){
       const w=toPOT(img.width), h=toPOT(img.height);
       const c=document.createElement('canvas'); c.width=w; c.height=h;
@@ -163,13 +186,11 @@
     function buildPlankAssets(){
       if (!state.plankImage) return;
       const pot = makePOTCanvas(state.plankImage);
-      // Safe 2D pattern using offscreen context
       try {
         const off = document.createElement('canvas'); off.width=pot.width; off.height=pot.height;
         const octx = off.getContext('2d'); octx.drawImage(pot,0,0);
         state.plankPattern = octx.createPattern(off,'repeat');
       } catch (_){ state.plankPattern = null; }
-      // WebGL texture
       if (gl){
         const tex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,tex);
         gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,0);
@@ -183,7 +204,7 @@
       }
     }
 
-    // --- Light texture from room (for shader realism)
+    // light texture
     let lightTex=null;
     function buildLightTexture(){
       if(!gl || !state.roomImage) return;
@@ -201,14 +222,13 @@
       lightTex=t; gl.activeTexture(gl.TEXTURE0);
     }
 
-    // --- WebGL shader (simple but clean; perspective mesh + tiling)
+    // shader
     let prog=null, a_pos=0, a_uv=0, u_res=0, u_tex=0, u_light=0, u_roomRect=0, vbo=0, tbo=0, mesh=null;
     if (gl){
       const vsrc=`attribute vec2 a_pos;attribute vec2 a_uv;varying vec2 v_uv;varying vec2 v_px;uniform vec2 u_res;void main(){vec2 o=a_pos/u_res*2.0-1.0;gl_Position=vec4(o*vec2(1.0,-1.0),0.0,1.0);v_uv=a_uv;v_px=a_pos;}`;
       const fsrc=`precision mediump float;varying vec2 v_uv;varying vec2 v_px;uniform sampler2D u_tex;uniform sampler2D u_light;uniform vec4 u_roomRect;void main(){vec3 wood=texture2D(u_tex,v_uv).rgb;vec2 uvRoom=(v_px - u_roomRect.xy)/u_roomRect.zw;float light=1.0; if(uvRoom.x>=0.0&&uvRoom.x<=1.0&&uvRoom.y>=0.0&&uvRoom.y<=1.0){vec3 rc=texture2D(u_light,uvRoom).rgb;float lum=dot(rc,vec3(0.299,0.587,0.114)); light=mix(1.0,lum*1.1+0.45,0.6);} gl_FragColor=vec4(wood*light,1.0);} `;
       const sh=(t,s)=>{const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o));return o;};
       prog=gl.createProgram(); gl.attachShader(prog,sh(gl.VERTEX_SHADER,vsrc)); gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,fsrc)); gl.linkProgram(prog);
-      if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) console.warn(gl.getProgramInfoLog(prog));
       gl.useProgram(prog);
       a_pos=gl.getAttribLocation(prog,'a_pos'); a_uv=gl.getAttribLocation(prog,'a_uv');
       u_res=gl.getUniformLocation(prog,'u_res'); u_tex=gl.getUniformLocation(prog,'u_tex'); u_light=gl.getUniformLocation(prog,'u_light'); u_roomRect=gl.getUniformLocation(prog,'u_roomRect');
@@ -232,6 +252,25 @@
         }
       }
       mesh={verts:new Float32Array(verts), uvs:new Float32Array(uvs)};
+    }
+
+    // validation helpers
+    function quadArea(q){
+      const w = gc.width, h = gc.height;
+      const pts = q.map(p=>({x:p.x*w, y:p.y*h}));
+      let a=0; for(let i=0;i<4;i++){ const j=(i+1)%4; a += pts[i].x*pts[j].y - pts[j].x*pts[i].y; }
+      return Math.abs(a)/2;
+    }
+    function isBadQuad(q){
+      if(!q || q.length!==4) return true;
+      const ys = q.map(p=>p.y);
+      const miny = Math.min.apply(null, ys), maxy = Math.max.apply(null, ys);
+      if(miny < 0.12) return true;
+      if(maxy > 1.02 || miny < -0.02) return true;
+      const A = quadArea(q);
+      const canvasA = gc.width * gc.height;
+      if (A < 0.05*canvasA) return true;
+      return false;
     }
 
     function render(){
@@ -275,9 +314,9 @@
       const a=document.createElement('a'); a.href=out.toDataURL('image/png'); a.download='floor-config.png'; a.click();
     });
 
-    // basic floor detector (fallback)
-    function autoDetectFloor(){
-      if(!state.roomImage){ tip('Upload a room photo first.'); return; }
+    // coarse detector (hint + fallback)
+    function getCoarseQuad(){
+      if(!state.roomImage){ return null; }
       const W=rc.width,H=rc.height, maxW=480, sc=Math.min(1,maxW/W), sw=Math.max(64,Math.round(W*sc)), sh=Math.max(64,Math.round(H*sc));
       const c=document.createElement('canvas'); c.width=sw; c.height=sh; const cx=c.getContext('2d'); cx.drawImage(rc,0,0,sw,sh);
       const img=cx.getImageData(0,0,sw,sh), d=img.data, gray=new Float32Array(sw*sh);
@@ -288,63 +327,44 @@
       for(let y=yStart;y<yEnd;y++){ let s=0; for(let x=0;x<sw;x++) s+=mag[y*sw+x]; row[y]=s/sw; }
       let yTop=yStart,best=-1; for(let y=yStart;y<yEnd;y++){ if(row[y]>best){ best=row[y]; yTop=y; } }
       const tl={x:.18,y:(yTop/sc)/H}, tr={x:.82,y:(yTop/sc)/H}, bl={x:.08,y:.96}, br={x:.92,y:.96};
-      state.quad=[tl,tr,br,bl]; mesh=null; syncHandles(); render(); tip('Auto-detect done (fallback).');
+      return [tl,tr,br,bl];
+    }
+    function autoDetectFloor(){
+      if(!state.roomImage){ tip('Upload a room photo first.'); return; }
+      const h = getCoarseQuad(); if (h){ state.quad=h; mesh=null; syncHandles(); render(); tip('Auto-detect done (fallback).'); autoFitTexture(); render(); }
     }
 
-    // AI call with quota/auth fallback
-    let aiCooldownUntil = 0;
-    function disableAI(seconds){
-      aiCooldownUntil = Date.now() + seconds*1000;
-      const btn = document.getElementById('btnAI');
-      if (btn){ btn.disabled = true; btn.textContent = 'AI (cooling down)'; }
-      setTimeout(()=>{
-        const left = aiCooldownUntil - Date.now();
-        if (left <= 0 && btn){ btn.disabled = false; btn.textContent = 'Detect & Replace (AI)'; }
-      }, Math.max(1000, seconds*1000));
-    }
+    // AI call with hint + guard
     async function callRemote(userText){
       if(!state.roomImage){ tip('Upload a room photo first'); return; }
       tip('Detecting floor…');
       try{
-        if (Date.now() < aiCooldownUntil) { tip('AI cooling down; using Auto‑detect.'); autoDetectFloor(); return; }
-        const roomImageDataURL = await toDataURL(state.roomImage, 1024);
-        const payload={ messages:[{role:'user',content:userText||'Detect the floor polygon'}], roomImageDataURL, textureUrl: state.textureUrl || '' };
+        const hint = getCoarseQuad();
+        if (hint){ state.quad = hint; syncHandles(); mesh=null; render(); }
+
+        const roomImageDataURL = await toDataURL(state.roomImage, 512);
+        const payload={ messages:[{role:'user',content:userText||'Detect the floor polygon'}], roomImageDataURL, textureUrl: state.textureUrl || '', hintQuad: hint ? hint.map(p=>({x:p.x, y:p.y})) : null };
         const resp=await fetch('/.netlify/functions/floor-chat',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-        const text = await resp.text(); let data={}; try{
-        if (Date.now() < aiCooldownUntil) { tip('AI cooling down; using Auto‑detect.'); autoDetectFloor(); return; } data=JSON.parse(text); }catch(_){};
-        if(!resp.ok){ const msg=data?.error || text || ('HTTP '+resp.status);
-        if(resp.status===429){ const retry = (data && data.retryAfterSeconds) ? data.retryAfterSeconds : 300; disableAI(retry); }
-        throw new Error(msg); }
+        const text = await resp.text(); let data={}; try{ data=JSON.parse(text); }catch(_){};
+        if(!resp.ok){ const msg=data?.error || text || ('HTTP '+resp.status); if(resp.status===429){ const retry=(data && data.retryAfterSeconds)?data.retryAfterSeconds:18000; setCooldown(retry); } throw new Error(msg); }
         if(Array.isArray(data.actions)) data.actions.forEach(runAction);
         if (data.text) tip(data.text);
       }catch(e){
         const msg=String(e?.message||e); log('AI failed: '+msg);
-        if (/quota|429|Unauthorized|401|rate limit/i.test(msg)) { tip('AI unavailable (quota/auth). Using Auto‑detect.'); autoDetectFloor(); }
-        else tip('AI error. Try again or use Auto‑detect.');
+        tip('AI unavailable, using Auto‑detect.'); autoDetectFloor();
       }
     }
 
+    // quad helpers and auto-fit
     function normalizeQuad(q){
-      // q can be [{x,y}...] in: normalized [0..1], percentages [0..100], or pixels [0..W/H]
       if (!Array.isArray(q) || q.length !== 4) return null;
-      // Extract arrays
-      const xs = q.map(p=>+p.x), ys = q.map(p=>+p.y);
-      const maxX = Math.max.apply(null, xs), maxY = Math.max.apply(null, ys);
-      // Decide the scale
-      if (maxX <= 1.5 && maxY <= 1.5) {
-        // Already normalized
-        return q.map(p=>({ x: clamp01(+p.x), y: clamp01(+p.y) }));
-      } else if (maxX <= 100.5 && maxY <= 100.5) {
-        // Percentages
-        return q.map(p=>({ x: clamp01(+p.x/100), y: clamp01(+p.y/100) }));
-      } else {
-        // Pixels relative to the displayed canvas (roomRect)
-        const W = gc.width, H = gc.height;
-        return q.map(p=>({ x: clamp01(+p.x / W), y: clamp01(+p.y / H) }));
-      }
+      const xs=q.map(p=>+p.x), ys=q.map(p=>+p.y);
+      const maxX=Math.max.apply(null,xs), maxY=Math.max.apply(null,ys);
+      if (maxX<=1.5 && maxY<=1.5) return q.map(p=>({x:clamp01(+p.x), y:clamp01(+p.y)}));
+      if (maxX<=100.5 && maxY<=100.5) return q.map(p=>({x:clamp01(+p.x/100), y:clamp01(+p.y/100)}));
+      const W=gc.width,H=gc.height; return q.map(p=>({x:clamp01(+p.x/W), y:clamp01(+p.y/H)}));
     }
     function imageToCanvasNorm(p){
-      // Map normalized image coords (0..1 in the AI-analyzed image) to normalized canvas coords
       const W = gc.width, H = gc.height;
       const rr = state.roomRect || {x:0,y:0,w:W,h:H};
       const cx = (rr.x + p.x * rr.w) / W;
@@ -352,104 +372,13 @@
       return { x: clamp01(cx), y: clamp01(cy) };
     }
     function sortQuadClockwise(q){
-      // Sort arbitrary 4 points to [TL, TR, BR, BL]
       const pts = q.map(p=>({x:p.x, y:p.y}));
-      pts.sort((a,b)=> a.y===b.y ? a.x-b.x : a.y-b.y); // top two first
+      pts.sort((a,b)=> a.y===b.y ? a.x-b.x : a.y-b.y);
       const top = pts.slice(0,2).sort((a,b)=>a.x-b.x);
       const bottom = pts.slice(2).sort((a,b)=>a.x-b.x);
       return [ top[0], top[1], bottom[1], bottom[0] ];
     }
-    function runAction(action){
-      if(!action || action.name!=='apply_floor_config') return;
-      const a=action.arguments||{}; log('AI action\n'+JSON.stringify(a,null,2)); // normalized & mapped to canvas after this
-      if (Array.isArray(a.floorQuad) && a.floorQuad.length===4){
-        let q = normalizeQuad(a.floorQuad);
-        if (q){ q = q.map(imageToCanvasNorm); q = sortQuadClockwise(q); state.quad = q; }
-        syncHandles(); mesh=null;
-      }
-      if (typeof a.scale==='number') state.scale=a.scale;
-      if (typeof a.rotationDegrees==='number') state.rotationDeg=a.rotationDegrees;
-      if (a.orientation) state.orientation=(a.orientation==='vertical')?'vertical':'horizontal';
-      if (a.textureUrl){ state.textureUrl=String(a.textureUrl); loadImageURL(state.textureUrl).then(img=>{ state.plankImage=img; buildPlankAssets(); autoFitTexture(); render(); }); }
-      $('sv').textContent=state.scale.toFixed(2); $('rv').textContent=state.rotationDeg.toFixed(1)+'°';
-      render();
-    }
-
     function clamp01(x){ return Math.max(0,Math.min(1,x)); }
-
-    function toDataURL(img, maxSide){
-      return new Promise((resolve)=>{
-        const w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
-        const MAX = maxSide || 768; const s=Math.min(1, MAX/Math.max(w,h));
-        const c=document.createElement('canvas'); c.width=Math.round(w*s); c.height=Math.round(h*s);
-        c.getContext('2d').drawImage(img,0,0,c.width,c.height);
-        resolve(c.toDataURL('image/jpeg',0.9));
-      });
-    }
-
-    function drawSelfTest(){
-      const c=document.createElement('canvas'); c.width=1024; c.height=768; const cx=c.getContext('2d');
-      cx.fillStyle='#e9edf7'; cx.fillRect(0,0,1024,480); cx.fillStyle='#b99774'; cx.fillRect(0,480,1024,288);
-      const img=new Image(); img.onload=()=>{ state.roomImage=img; drawRoom(); mesh=null; render(); tip('Self-test drawn'); }; img.src=c.toDataURL('image/png');
-    }
-
-    
-    // --- Auto-Fit: automatically estimate board angle and scale
-    function pointInPoly(pt, poly){
-      let inside=false;
-      for(let i=0,j=poly.length-1;i<poly.length;j=i++){
-        const xi=poly[i].x, yi=poly[i].y, xj=poly[j].x, yj=poly[j].y;
-        const intersect=((yi>pt.y)!=(yj>pt.y)) && (pt.x < (xj-xi)*(pt.y-yi)/(yj-yi+1e-6)+xi);
-        if(intersect) inside=!inside;
-      }
-      return inside;
-    }
-
-    function detectBoardAngle(){
-      if (!state.roomImage) return null;
-      const W = rc.width, H = rc.height;
-      const DOWN = 320; const s = Math.min(1, DOWN / Math.max(W,H));
-      const sw = Math.max(64, Math.round(W*s)), sh = Math.max(64, Math.round(H*s));
-      const c=document.createElement('canvas'); c.width=sw; c.height=sh; const cx=c.getContext('2d');
-      cx.drawImage(rc, 0, 0, sw, sh);
-      const img=cx.getImageData(0,0,sw,sh), d=img.data;
-      const gx = new Float32Array(sw*sh), gy = new Float32Array(sw*sh), mag = new Float32Array(sw*sh);
-
-      // scale quad to downsampled space
-      const q = state.quad.map(p=>({x:p.x*W*s, y:p.y*H*s}));
-
-      const getGray = (x,y)=>{ const i=(y*sw + x)*4; return d[i]*.299 + d[i+1]*.587 + d[i+2]*.114; };
-      for(let y=1;y<sh-1;y++){
-        for(let x=1;x<sw-1;x++){
-          const p={x,y};
-          if(!pointInPoly(p,q)) continue;
-          const tl=getGray(x-1,y-1), tc=getGray(x,y-1), tr=getGray(x+1,y-1);
-          const ml=getGray(x-1,y  ),               mr=getGray(x+1,y  );
-          const bl=getGray(x-1,y+1), bc=getGray(x,y+1), br=getGray(x+1,y+1);
-          const sx = -tl + tr - 2*ml + 2*mr - bl + br;
-          const sy =  tl + 2*tc + tr - bl - 2*bc - br;
-          const idx=y*sw+x;
-          gx[idx]=sx; gy[idx]=sy; mag[idx]=Math.hypot(sx,sy);
-        }
-      }
-      // orientation histogram (0..pi)
-      const bins=90; const hist=new Float32Array(bins);
-      for(let i=0;i<mag.length;i++){
-        const m=mag[i]; if(m<5) continue;
-        let ang=Math.atan2(gy[i], gx[i]); // -pi..pi
-        if(ang<0) ang+=Math.PI*2;
-        if(ang>Math.PI) ang-=Math.PI; // 0..pi
-        const b=Math.min(bins-1, Math.floor(ang/Math.PI*bins));
-        hist[b]+=m;
-      }
-      let bi=0, best=-1; for(let i=0;i<bins;i++){ if(hist[i]>best){best=hist[i]; bi=i;} }
-      if(best<=0) return null;
-      const angle = (bi + 0.5) * (Math.PI / bins);
-      const boardDir = angle + Math.PI/2;
-      let deg = boardDir * 180/Math.PI;
-      while(deg>180) deg-=360; while(deg<-180) deg+=360;
-      return deg;
-    }
 
     function autoFitTexture(){
       const W = gc.width, H = gc.height;
@@ -466,18 +395,99 @@
       const bottomLen = Math.hypot(qpx[2].x - qpx[3].x, qpx[2].y - qpx[3].y);
       const targetRepeats = Math.max(7, Math.min(14, Math.round(bottomLen / 120)));
       state.scale = targetRepeats;
-      document.getElementById('sv').textContent = state.scale.toFixed(2);
-      document.getElementById('rv').textContent = state.rotationDeg.toFixed(1)+'°';
+      $('sv').textContent = state.scale.toFixed(2);
+      $('rv').textContent = state.rotationDeg.toFixed(1)+'°';
       mesh=null;
     }
-// boot
+
+    function detectBoardAngle(){
+      if (!state.roomImage) return null;
+      const W = rc.width, H = rc.height;
+      const DOWN = 320; const s = Math.min(1, DOWN / Math.max(W,H));
+      const sw = Math.max(64, Math.round(W*s)), sh = Math.max(64, Math.round(H*s));
+      const c=document.createElement('canvas'); c.width=sw; c.height=sh; const cx=c.getContext('2d'); cx.drawImage(rc, 0, 0, sw, sh);
+      const img=cx.getImageData(0,0,sw,sh), d=img.data;
+      const gx = new Float32Array(sw*sh), gy = new Float32Array(sw*sh), mag = new Float32Array(sw*sh);
+      const q = state.quad.map(p=>({x:p.x*W*s, y:p.y*H*s}));
+      const getGray = (x,y)=>{ const i=(y*sw + x)*4; return d[i]*.299 + d[i+1]*.587 + d[i+2]*.114; };
+      function pointInPoly(pt, poly){
+        let inside=false;
+        for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+          const xi=poly[i].x, yi=poly[i].y, xj=poly[j].x, yj=poly[j].y;
+          const intersect=((yi>pt.y)!=(yj>pt.y)) && (pt.x < (xj-xi)*(pt.y-yi)/(yj-yi+1e-6)+xi);
+          if(intersect) inside=!inside;
+        }
+        return inside;
+      }
+      for(let y=1;y<sh-1;y++){
+        for(let x=1;x<sw-1;x++){
+          const p={x,y}; if(!pointInPoly(p,q)) continue;
+          const tl=getGray(x-1,y-1), tc=getGray(x,y-1), tr=getGray(x+1,y-1);
+          const ml=getGray(x-1,y  ),               mr=getGray(x+1,y  );
+          const bl=getGray(x-1,y+1), bc=getGray(x,y+1), br=getGray(x+1,y+1);
+          const sx = -tl + tr - 2*ml + 2*mr - bl + br;
+          const sy =  tl + 2*tc + tr - bl - 2*bc - br;
+          const idx=y*sw+x; gx[idx]=sx; gy[idx]=sy; mag[idx]=Math.hypot(sx,sy);
+        }
+      }
+      const bins=90; const hist=new Float32Array(bins);
+      for(let i=0;i<mag.length;i++){
+        const m=mag[i]; if(m<5) continue;
+        let ang=Math.atan2(gy[i], gx[i]);
+        if(ang<0) ang+=Math.PI*2; if(ang>Math.PI) ang-=Math.PI;
+        const b=Math.min(bins-1, Math.floor(ang/Math.PI*bins)); hist[b]+=m;
+      }
+      let bi=0, best=-1; for(let i=0;i<bins;i++){ if(hist[i]>best){best=hist[i]; bi=i;} }
+      if(best<=0) return null;
+      const angle = (bi + 0.5) * (Math.PI / bins);
+      const boardDir = angle + Math.PI/2;
+      let deg = boardDir * 180/Math.PI; while(deg>180) deg-=360; while(deg<-180) deg+=360;
+      return deg;
+    }
+
+    // runAction
+    function runAction(action){
+      const a=action?.arguments||{}; log('AI action\\n'+JSON.stringify(a,null,2));
+      if (Array.isArray(a.floorQuad) && a.floorQuad.length===4){
+        let q = normalizeQuad(a.floorQuad);
+        if (q){ q = q.map(imageToCanvasNorm); q = sortQuadClockwise(q); }
+        if (q && !isBadQuad(q)) { state.quad = q; }
+        else { tip('AI returned a coarse box; using refined fallback.'); const h=getCoarseQuad(); if(h) state.quad=h; }
+        syncHandles(); mesh=null;
+      }
+      if (typeof a.scale==='number') state.scale=a.scale;
+      if (typeof a.rotationDegrees==='number') state.rotationDeg=a.rotationDegrees;
+      if (a.orientation) state.orientation=(a.orientation==='vertical')?'vertical':'horizontal';
+      if (a.textureUrl){ state.textureUrl=String(a.textureUrl); loadImageURL(state.textureUrl).then(img=>{ state.plankImage=img; buildPlankAssets(); render(); }); }
+      $('sv').textContent=state.scale.toFixed(2); $('rv').textContent=state.rotationDeg.toFixed(1)+'°';
+      autoFitTexture(); render();
+    }
+
+    function toDataURL(img, maxSide){
+      return new Promise((resolve)=>{
+        const w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
+        const MAX = maxSide || 512; const s=Math.min(1, MAX/Math.max(w,h));
+        const c=document.createElement('canvas'); c.width=Math.round(w*s); c.height=Math.round(h*s);
+        c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+        resolve(c.toDataURL('image/jpeg',0.9));
+      });
+    }
+
+    function drawSelfTest(){
+      const c=document.createElement('canvas'); c.width=1024; c.height=768; const cx=c.getContext('2d');
+      cx.fillStyle='#e9edf7'; cx.fillRect(0,0,1024,480); cx.fillStyle='#b99774'; cx.fillRect(0,480,1024,288);
+      const img=new Image(); img.onload=()=>{ state.roomImage=img; drawRoom(); mesh=null; render(); tip('Self-test drawn'); }; img.src=c.toDataURL('image/png');
+    }
+
+    // boot
     function ensureReady(){
       const r=wrap.getBoundingClientRect(); rc.width=r.width; rc.height=r.height; gc.width=r.width; gc.height=r.height;
       if(gl){ buildLightTexture(); }
+      restoreCooldown();
       syncHandles(); drawRoom(); render();
-      log('Boot ✓\nMode: '+(gl?'WebGL':'2D fallback')+'\nCanvas: '+gc.width+'×'+gc.height);
+      log('Boot ✓\\nMode: '+(gl?'WebGL':'2D fallback')+'\\nCanvas: '+gc.width+'×'+gc.height);
     }
-    if(document.readyState!=='loading') setTimeout(ensureReady,0); else window.addEventListener('DOMContentLoaded', ensureReady);
+    if(document.readyState!=='loading'){ ensureReady(); } else { window.addEventListener('DOMContentLoaded', ensureReady); }
   })();
   </script>
 </body>

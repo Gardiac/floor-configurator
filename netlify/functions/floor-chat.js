@@ -5,7 +5,7 @@ export const handler = async (event) => {
   if (event.httpMethod !== "POST")  return { statusCode: 405, headers: cors(), body: "Only POST" };
 
   try {
-    const { messages = [], roomImageDataURL = null, textureUrl = "" } = JSON.parse(event.body || "{}");
+    const { messages = [], roomImageDataURL = null, textureUrl = "", hintQuad = null } = JSON.parse(event.body || "{}");
 
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
@@ -13,7 +13,8 @@ export const handler = async (event) => {
     }
 
     const client = new OpenAI({ apiKey });
-    const model = process.env.MODEL || "gpt-4o-mini"; // cheaper default
+    const model = process.env.MODEL || "gpt-4o-mini"; // default cheap vision
+    const imageDetail = process.env.IMAGE_DETAIL || "high";
 
     const tools = [{
       type: "function",
@@ -24,7 +25,7 @@ export const handler = async (event) => {
           type: "object",
           properties: {
             floorQuad: {
-              description: "Four points normalized [0..1], clockwise from top-left",
+              description: "Four points normalized [0..1] in IMAGE coordinates, clockwise from top-left",
               type: "array", minItems: 4, maxItems: 4,
               items: { type: "object", properties: { x:{type:"number"}, y:{type:"number"} }, required:["x","y"] }
             },
@@ -41,29 +42,37 @@ export const handler = async (event) => {
       }
     }];
 
-    // Build a single user message with an array of content parts
     const parts = [];
     const lastText = (messages[messages.length - 1]?.content) || "Detect the floor polygon and suggest tiling params.";
     parts.push({ type: "text", text: lastText });
+    if (roomImageDataURL) parts.push({ type: "image_url", image_url: { url: roomImageDataURL, detail: imageDetail } });
+    if (textureUrl) parts.push({ type: "text", text: `Texture URL hint: ${textureUrl}` });
 
-    if (roomImageDataURL) {
-      parts.push({ type: "image_url", image_url: { url: roomImageDataURL } });
-    }
-    if (textureUrl) {
-      parts.push({ type: "text", text: `Texture URL hint: ${textureUrl}` });
+    const systemPrompt = `You are an AI floor configurator.
+Return exactly ONE tool call (apply_floor_config). You MUST detect only the visible FLOOR region.
+
+Rules:
+- floorQuad: 4 points normalized [0..1] in IMAGE coordinates, clockwise from TOP-LEFT.
+- The top edge should align with the baseboard/wall junction (do not include walls).
+- Do NOT return the trivial full-image box [ (0,0),(1,0),(1,1),(0,1) ].
+- Prefer y_top in the 0.25..0.75 range unless the camera is extremely low.
+- If hintQuad is provided, refine it precisely to the true floor; keep corners on floor boundaries.
+- Include orientation ('horizontal' if boards run left-right in the image, 'vertical' otherwise), and an initial rotationDegrees/scale guess.
+Only respond with the tool call.`;
+
+    const msgList = [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: parts }
+    ];
+    if (hintQuad) {
+      msgList.push({ role: "user", content: [{ type: "text", text: "Hint quad (normalized canvas space, same image as above): " + JSON.stringify(hintQuad) }] });
     }
 
     const chat = await client.chat.completions.create({
       model,
-      messages: [
-        { role: "system", content:
-`You are an AI floor configurator. Respond with ONE tool call (apply_floor_config) including:
-- floorQuad: 4 points normalized [0..1], clockwise from top-left (floor only).
-- orientation, rotationDegrees, scale, randomness, optional textureUrl.` },
-        { role: "user", content: parts }
-      ],
+      messages: msgList,
       tools,
-      tool_choice: "auto",
+      tool_choice: { type: "function", function: { name: "apply_floor_config" } },
       temperature: 0.2
     });
 
@@ -84,13 +93,16 @@ export const handler = async (event) => {
       err?.response?.data?.error?.message ||
       err?.message ||
       "Unknown server error";
+
+    // parse hours/mins/secs like "in 6h0m43.2s"
     let retry = 0;
     try {
-      const m = /in\s*(\d+(?:\.\d+)?)s/i.exec(message);
-      if (m) retry = Math.ceil(parseFloat(m[1]));
-      const m2 = /in\s*(\d+)m/i.exec(message);
-      if (m2) retry = Math.ceil(parseFloat(m2[1]) * 60);
+      const H = /in\s*(\d+)h/i.exec(message); if (H) retry += parseInt(H[1],10)*3600;
+      const M = /in\s*(\d+)m/i.exec(message); if (M) retry += parseInt(M[1],10)*60;
+      const S = /in\s*(\d+(?:\.\d+)?)s/i.exec(message); if (S) retry += Math.ceil(parseFloat(S[1]));
+      if (!retry && status===429) retry = 300;
     } catch (_) {}
+
     return { statusCode: status, headers: cors(), body: JSON.stringify({ error: message, status, retryAfterSeconds: retry }) };
   }
 };

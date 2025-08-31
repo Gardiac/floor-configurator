@@ -1,13 +1,8 @@
-# AI Floor Configurator — v4 (vision fix)
+# AI Floor Configurator — v4 (hinted + guard)
+- Sends a coarse on-device hintQuad to steer the model.
+- Server forces a single tool call and asks the model NOT to return the trivial full-image box.
+- Client validates the quad; if it's bad, it keeps the refined fallback instead.
+- Auto-Fit: rotation + scale set automatically.
+- Persistent cooldown for rate limits; 512px image cap.
 
-**Fixes**: 400 Invalid value 'input_image' → uses `image_url` parts per Chat Completions multimodal spec.
-
-- Front-end: same as quota-safe build (2D fallback + POT textures + auto fallback on 429).
-- Functions: `floor-chat.js` now sends messages with content parts:
-  - `{ type: "text", text: "..." }`
-  - `{ type: "image_url", image_url: { url: <dataURL> } }`
-
-## Deploy
-1) Replace files at repo root.
-2) Netlify → Env vars: `OPENAI_API_KEY` (and optionally `MODEL=gpt-4o-mini`).
-3) Deploys → Clear cache and deploy.
+Deploy on Netlify and set `OPENAI_API_KEY` (and optional `MODEL`, `IMAGE_DETAIL`).
