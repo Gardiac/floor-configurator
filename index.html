@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AI Floor Configurator — v4 (with 2D fallback)</title>
+  <title>AI Floor Configurator — v4 (WebGL + 2D fallback)</title>
   <style>
     :root{ --bg:#f6f3ef; --text:#2b241e; --muted:#6f5f52; --panel:#fffdf9; --accent:#b87333; --line:#e6ded5; --shadow:0 10px 24px rgba(45,33,23,.08); }
     *{box-sizing:border-box} html,body{height:100%}
@@ -20,16 +20,19 @@
     #debug{position:fixed;left:16px;bottom:16px;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:var(--shadow);color:#7d5a3d;font-size:12px;max-width:60ch;display:none;white-space:pre-wrap}
     .row{display:flex;gap:8px;align-items:center;margin:8px 0}
     .btn{appearance:none;cursor:pointer;border:1px solid #d9c9b8;background:#fff;color:#5a3f2c;padding:9px 11px;border-radius:10px;font-weight:700}
+    label{font-size:12px;color:#6f5f52}
+    input[type=range]{width:100%}
   </style>
 </head>
 <body>
-  <header><b>AI Floor Configurator — v4</b><span id="modeTag" style="font-size:12px;color:#6f5f52"></span></header>
+  <header><b>AI Floor Configurator — v4</b><span id="modeTag" style="font-size:12px;color:#6f5f52;margin-left:8px"></span></header>
   <main>
     <section class="panel">
-      <div class="row"><input id="roomFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></div>
-      <div class="row"><input id="texFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></div>
-      <div class="row"><button class="btn" id="btnAI">Detect & Replace (AI)</button><button class="btn" id="btnSelf">Self‑test</button></div>
-      <div class="row"><button class="btn" id="btnSanity">Sanity ping</button></div>
+      <div class="row"><label>Room photo</label><input id="roomFile" type="file" accept="image/png,image/jpeg,image/webp"></div>
+      <div class="row"><label>Plank texture</label><input id="texFile" type="file" accept="image/png,image/jpeg,image/webp"></div>
+      <div class="row"><button class="btn" id="btnAI">Detect & Replace (AI)</button><button class="btn" id="btnSelf">Self‑test</button><button class="btn" id="btnPing">Sanity</button></div>
+      <div class="row"><label>Scale <span id="sv">1.00</span></label><input id="scale" type="range" min="0.2" max="4" step="0.01" value="1"></div>
+      <div class="row"><label>Rotation <span id="rv">0°</span></label><input id="rot" type="range" min="-90" max="90" step="0.5" value="0"></div>
     </section>
     <section class="panel">
       <div id="canvasWrap">
@@ -45,37 +48,57 @@
   <div id="toast"></div><div id="debug"></div>
   <script>
   (function(){
-    // DEBUG catcher
-    window.addEventListener('error', (e)=>{ const el=document.getElementById('debug'); el.textContent='JS error: '+(e.message||e); el.style.display='block'; });
-
-    const $ = id=>document.getElementById(id);
-    const toast=$('toast'); const debug=$('debug'); const modeTag=$('modeTag');
-    const wrap=$('canvasWrap'); const rc=$('roomCanvas'); const gc=$('glCanvas'); const rctx=rc.getContext('2d');
-
-    const state={ roomImage:null, plankImage:null, plankTexture:null, use2d:false, quad:[{x:.2,y:.68},{x:.8,y:.68},{x:.76,y:.92},{x:.24,y:.92}], roomRect:{x:0,y:0,w:0,h:0} };
+    // --- utilities
+    const $ = (id)=>document.getElementById(id);
+    const toast=$('toast'), debug=$('debug'), modeTag=$('modeTag');
     function tip(m){ toast.textContent=m; toast.style.display='block'; setTimeout(()=>toast.style.display='none',2500); }
     function log(m){ if(m){debug.textContent=m;debug.style.display='block';}else{debug.textContent='';debug.style.display='none';} }
+    window.addEventListener('error', e=>{ log('JS error: '+(e.message||e)); });
 
-    // Attach listeners IMMEDIATELY (even if WebGL fails later)
-    $('btnSanity').addEventListener('click', ()=> alert('JS running ✓'));
+    // --- state
+    const wrap=$('canvasWrap'), rc=$('roomCanvas'), gc=$('glCanvas');
+    const rctx=rc.getContext('2d');
+    const state={
+      roomImage:null,
+      plankImage:null,
+      plankPattern:null, // 2D pattern
+      plankTexture:null, // WebGL texture
+      quad:[{x:.2,y:.68},{x:.8,y:.68},{x:.76,y:.92},{x:.24,y:.92}],
+      roomRect:{x:0,y:0,w:0,h:0},
+      scale:1, rotationDeg:0,
+      use2d:false
+    };
 
-    $('roomFile').addEventListener('change', async e=>{
-      const f=e.target.files?.[0]; if(!f) return;
-      try{ const img=await readImage(f); state.roomImage=img; drawRoom(); tip('Room loaded'); log('Room loaded ✓'); }catch(err){ log('Room load error: '+(err?.message||err)); }
-    });
-    $('texFile').addEventListener('change', async e=>{
-      const f=e.target.files?.[0]; if(!f) return;
-      try{ const img=await readImage(f); state.plankImage=img; if (gl) { state.plankTexture=textureFromImage(img); } render(); tip('Texture loaded'); log('Texture loaded ✓'); }catch(err){ log('Texture load error: '+(err?.message||err)); }
-    });
+    // --- listeners early (so clicks never get dropped)
+    $('btnPing').addEventListener('click', ()=> alert('JS running ✓'));
     $('btnSelf').addEventListener('click', ()=>{
       const c=document.createElement('canvas'); c.width=1024; c.height=768; const cx=c.getContext('2d');
       cx.fillStyle='#e9edf7'; cx.fillRect(0,0,1024,480); cx.fillStyle='#b99774'; cx.fillRect(0,480,1024,288);
-      const img=new Image(); img.onload=()=>{ state.roomImage=img; drawRoom(); tip('Self-test drawn'); log('Self-test drawn'); }; img.src=c.toDataURL('image/png');
+      const img=new Image(); img.onload=()=>{ state.roomImage=img; drawRoom(); render(); tip('Self-test drawn'); }; img.src=c.toDataURL('image/png');
     });
-    $('btnAI').addEventListener('click', ()=> tip('AI wired on full build; this minimal demo focuses on render/fallback.'));
+    $('roomFile').addEventListener('change', async (e)=>{
+      const f=e.target.files?.[0]; if(!f) return;
+      try{ const img=await readImage(f); state.roomImage=img; drawRoom(); render(); tip('Room loaded'); }catch(err){ log('Room load error: '+(err?.message||err)); }
+    });
+    $('texFile').addEventListener('change', async (e)=>{
+      const f=e.target.files?.[0]; if(!f) return;
+      try{
+        const img=await readImage(f); state.plankImage=img;
+        buildPlankAssets(); render();
+        tip('Texture ready');
+      }catch(err){ log('Texture load error: '+(err?.message||err)); }
+    });
+    $('btnAI').addEventListener('click', callAI);
+    $('scale').addEventListener('input', (e)=>{ state.scale=+e.target.value; $('sv').textContent=state.scale.toFixed(2); mesh=null; render(); });
+    $('rot').addEventListener('input', (e)=>{ state.rotationDeg=+e.target.value; $('rv').textContent=state.rotationDeg.toFixed(1)+'°'; mesh=null; render(); });
 
-    // Canvas sizing
-    function resize(){ const r=wrap.getBoundingClientRect(); rc.width=r.width; rc.height=r.height; gc.width=r.width; gc.height=r.height; if(gl){ gl.viewport(0,0,gc.width,gc.height);} drawRoom(); render(); }
+    // --- canvas size
+    function resize(){
+      const r=wrap.getBoundingClientRect();
+      rc.width=r.width; rc.height=r.height; gc.width=r.width; gc.height=r.height;
+      if(gl) gl.viewport(0,0,gc.width,gc.height);
+      drawRoom(); render();
+    }
     window.addEventListener('resize', resize);
 
     function drawRoom(){
@@ -87,16 +110,46 @@
     }
 
     function readImage(file){
-      return new Promise((res,rej)=>{ const rd=new FileReader(); rd.onerror=()=>rej(new Error('read fail')); rd.onload=()=>{ const img=new Image(); img.onload=()=>res(img); img.onerror=()=>rej(new Error('decode fail')); img.src=rd.result; }; rd.readAsDataURL(file); });
+      return new Promise((res,rej)=>{
+        const rd=new FileReader(); rd.onerror=()=>rej(new Error('read fail'));
+        rd.onload=()=>{ const img=new Image(); img.onload=()=>res(img); img.onerror=()=>rej(new Error('decode fail')); img.src=rd.result; };
+        rd.readAsDataURL(file);
+      });
     }
 
-    // Try WebGL; if missing, use 2D fallback without returning early
+    // --- WebGL or 2D fallback
     const gl = gc.getContext('webgl', { alpha:true, premultipliedAlpha:true, antialias:true });
-    if(!gl){ state.use2d=true; modeTag.textContent='(2D fallback)'; log('WebGL not available → using 2D fallback.'); }
-    else { modeTag.textContent='(WebGL)'; }
+    if(!gl){ state.use2d=true; modeTag.textContent='(2D fallback)'; } else { modeTag.textContent='(WebGL)'; }
 
-    // ---- WebGL path (if available)
-    let prog, a_pos, a_uv, u_res, vbo, tbo;
+    // power-of-two canvas helper (prevents black textures on REPEAT)
+    function toPOT(n){ return Math.pow(2, Math.max(6, Math.ceil(Math.log2(Math.max(1,n))))); } // min 64
+    function makePOTCanvas(img){
+      const w=toPOT(img.width), h=toPOT(img.height);
+      const c=document.createElement('canvas'); c.width=w; c.height=h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      return c;
+    }
+
+    // build texture + 2D pattern from the same POT source
+    function buildPlankAssets(){
+      if(!state.plankImage) return;
+      const pot = makePOTCanvas(state.plankImage);
+      state.plankPattern = gc.getContext('2d').createPattern(pot, 'repeat');
+      if (gl){
+        const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, pot);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        state.plankTexture = tex;
+      }
+    }
+
+    // --- WebGL pipeline (simple; just to verify texture covers quad)
+    let prog=null, a_pos=0, a_uv=0, u_res=0, vbo=0, tbo=0, mesh=null;
     function initGL(){
       const vsrc=`attribute vec2 a_pos;attribute vec2 a_uv;varying vec2 v_uv;uniform vec2 u_res;void main(){vec2 o=a_pos/u_res*2.0-1.0;gl_Position=vec4(o*vec2(1.0,-1.0),0.0,1.0);v_uv=a_uv;}`;
       const fsrc=`precision mediump float;varying vec2 v_uv;uniform sampler2D u_tex;void main(){gl_FragColor=texture2D(u_tex,v_uv);} `;
@@ -106,76 +159,101 @@
       a_pos=gl.getAttribLocation(prog,'a_pos'); a_uv=gl.getAttribLocation(prog,'a_uv'); u_res=gl.getUniformLocation(prog,'u_res');
       vbo=gl.createBuffer(); tbo=gl.createBuffer(); gl.clearColor(0,0,0,0);
     }
-    function textureFromImage(img){
-      const tex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,tex);
-      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT);
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,0); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,img);
-      return tex;
-    }
-    function buildMesh(){
+    function buildMesh(cols=32, rows=32){
       const w=gc.width,h=gc.height,q=state.quad.map(p=>({x:p.x*w,y:p.y*h}));
       const lerp=(a,b,t)=>a+(b-a)*t, ip=(u,v)=>({x:lerp(lerp(q[0].x,q[1].x,u),lerp(q[3].x,q[2].x,u),v),y:lerp(lerp(q[0].y,q[1].y,u),lerp(q[3].y,q[2].y,u),v)});
-      const verts=[],uvs=[]; const cols=64,rows=64;
+      const verts=[],uvs=[]; const sc=state.scale; const rot=state.rotationDeg*Math.PI/180, c=Math.cos(rot), s=Math.sin(rot);
+      const rotUV=(u,v)=>({u:u*c - v*s, v:u*s + v*c});
       for(let y=0;y<rows;y++){ const v0=y/rows,v1=(y+1)/rows;
         for(let x=0;x<cols;x++){ const u0=x/cols,u1=(x+1)/cols;
           const p00=ip(u0,v0),p10=ip(u1,v0),p11=ip(u1,v1),p01=ip(u0,v1);
+          const r00=rotUV(u0*sc,v0*sc), r10=rotUV(u1*sc,v0*sc), r11=rotUV(u1*sc,v1*sc), r01=rotUV(u0*sc,v1*sc);
           verts.push(p00.x,p00.y,p10.x,p10.y,p11.x,p11.y,  p00.x,p00.y,p11.x,p11.y,p01.x,p01.y);
-          uvs.push(u0,v0,u1,v0,u1,v1,  u0,v0,u1,v1,u0,v1);
+          uvs.push(r00.u,r00.v, r10.u,r10.v, r11.u,r11.v,  r00.u,r00.v, r11.u,r11.v, r01.u,r01.v);
         }
       }
-      return {verts:new Float32Array(verts),uvs:new Float32Array(uvs)};
+      mesh={verts:new Float32Array(verts), uvs:new Float32Array(uvs)};
     }
-    let mesh=null;
     function renderGL(){
-      if(!gl) return;
       gl.clear(gl.COLOR_BUFFER_BIT);
       if(!state.plankTexture) return;
-      if(!mesh) mesh=buildMesh();
+      if(!mesh) buildMesh();
       gl.useProgram(prog); gl.uniform2f(u_res,gc.width,gc.height);
       gl.bindBuffer(gl.ARRAY_BUFFER,vbo); gl.bufferData(gl.ARRAY_BUFFER,mesh.verts,gl.DYNAMIC_DRAW); gl.enableVertexAttribArray(a_pos); gl.vertexAttribPointer(a_pos,2,gl.FLOAT,false,0,0);
       gl.bindBuffer(gl.ARRAY_BUFFER,tbo); gl.bufferData(gl.ARRAY_BUFFER,mesh.uvs,gl.DYNAMIC_DRAW); gl.enableVertexAttribArray(a_uv); gl.vertexAttribPointer(a_uv,2,gl.FLOAT,false,0,0);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, state.plankTexture);
       gl.drawArrays(gl.TRIANGLES,0,mesh.verts.length/2);
     }
 
-    // ---- 2D fallback path
-    let g2d = null;
-    if (!gl) g2d = gc.getContext('2d');
+    // --- 2D tiler
     function render2D(){
-      if(!g2d) return;
-      const w=gc.width,h=gc.height;
-      g2d.clearRect(0,0,w,h);
-      if(!state.plankImage) return;
-      g2d.save();
-      // clip to quad
-      g2d.beginPath();
-      g2d.moveTo(state.quad[0].x*w, state.quad[0].y*h);
-      for (let i=1;i<4;i++) g2d.lineTo(state.quad[i].x*w, state.quad[i].y*h);
-      g2d.closePath(); g2d.clip();
-      // approximate rotation/scale around center of quad
-      const cx=(state.quad[0].x*w + state.quad[2].x*w)/2;
-      const cy=(state.quad[0].y*h + state.quad[2].y*h)/2;
-      g2d.translate(cx,cy);
-      const rot=0; // keep simple in fallback
-      g2d.rotate(rot);
-      const s=1; g2d.scale(s,s);
-      g2d.translate(-cx,-cy);
-      const pat=g2d.createPattern(state.plankImage,'repeat');
-      g2d.fillStyle=pat;
-      g2d.fillRect(0,0,w,h);
-      g2d.restore();
+      const ctx=gc.getContext('2d'); const w=gc.width,h=gc.height;
+      ctx.clearRect(0,0,w,h);
+      if(!state.plankPattern) return;
+      ctx.save();
+      ctx.beginPath(); ctx.moveTo(state.quad[0].x*w, state.quad[0].y*h); for(let i=1;i<4;i++) ctx.lineTo(state.quad[i].x*w, state.quad[i].y*h); ctx.closePath(); ctx.clip();
+      // Transform pattern by rotation/scale around quad center
+      const cx=(state.quad[0].x*w + state.quad[2].x*w)/2, cy=(state.quad[0].y*h + state.quad[2].y*h)/2;
+      ctx.translate(cx,cy); ctx.rotate(state.rotationDeg*Math.PI/180); ctx.scale(state.scale,state.scale); ctx.translate(-cx,-cy);
+      ctx.fillStyle=state.plankPattern; ctx.fillRect(0,0,w,h);
+      ctx.restore();
     }
 
     function render(){ if (gl) renderGL(); else render2D(); }
 
-    // INIT
+    // draggable handles
+    const handles=[0,1,2,3].map(i=> $('h'+i));
+    function syncHandles(){ const w=gc.width,h=gc.height; for(let i=0;i<4;i++){ const p=state.quad[i]; handles[i].style.left=(p.x*100)+'%'; handles[i].style.top=(p.y*100)+'%'; } }
+    handles.forEach((el,i)=>{
+      let drag=false; el.addEventListener('pointerdown',e=>{drag=true; el.setPointerCapture(e.pointerId);});
+      el.addEventListener('pointerup',e=>{drag=false; el.releasePointerCapture(e.pointerId);});
+      el.addEventListener('pointermove',e=>{ if(!drag) return; const r=gc.getBoundingClientRect(); const x=(e.clientX-r.left)/r.width, y=(e.clientY-r.top)/r.height; state.quad[i]={x:Math.max(0,Math.min(1,x)), y:Math.max(0,Math.min(1,y))}; mesh=null; syncHandles(); render(); });
+    });
+
+    // AI call to Netlify function
+    async function callAI(){
+      if (!state.roomImage) { tip('Upload a room photo first'); return; }
+      tip('Detecting floor…');
+      try{
+        const roomImageDataURL = await toDataURL(state.roomImage);
+        const resp = await fetch('/.netlify/functions/floor-chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ messages:[{role:'user',content:'Detect floor polygon'}], roomImageDataURL }) });
+        if(!resp.ok){ const t=await resp.text(); throw new Error('HTTP '+resp.status+': '+t); }
+        const data = await resp.json();
+        if (Array.isArray(data.actions)){
+          const t = data.actions.find(a=>a.name==='apply_floor_config');
+          if (t && t.arguments && Array.isArray(t.arguments.floorQuad) && t.arguments.floorQuad.length===4){
+            state.quad = t.arguments.floorQuad.map(p=>({x:clamp01(+p.x), y:clamp01(+p.y)}));
+            if (typeof t.arguments.scale==='number') state.scale=t.arguments.scale;
+            if (typeof t.arguments.rotationDegrees==='number') state.rotationDeg=t.arguments.rotationDegrees;
+            $('sv').textContent=state.scale.toFixed(2); $('rv').textContent=state.rotationDeg.toFixed(1)+'°';
+            mesh=null; syncHandles(); render(); tip('Floor detected ✓');
+          }else{ tip('AI did not return a floor. Try a clearer photo.'); }
+        } else {
+          tip('No AI actions found'); log(JSON.stringify(data,null,2));
+        }
+      }catch(e){ log('AI error: '+(e.message||e)); tip('AI error: '+(e.message||e)); }
+    }
+
+    function clamp01(x){ return Math.max(0,Math.min(1,x)); }
+
+    function toDataURL(img){
+      return new Promise((resolve)=>{
+        const w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
+        const MAX=1600, s=Math.min(1, MAX/Math.max(w,h));
+        const c=document.createElement('canvas'); c.width=Math.round(w*s); c.height=Math.round(h*s);
+        const cx=c.getContext('2d'); cx.drawImage(img,0,0,c.width,c.height);
+        resolve(c.toDataURL('image/jpeg',0.9));
+      });
+    }
+
+    // init
     function ensureReady(){
       const r=wrap.getBoundingClientRect(); rc.width=r.width; rc.height=r.height; gc.width=r.width; gc.height=r.height;
-      if (gl){ try{ initGL(); }catch(e){ log('GL init error: '+e); state.use2d=true; } }
-      render();
+      if (gl){ try{ initGL(); }catch(e){ log('GL init error: '+(e.message||e)); state.use2d=true; } }
+      syncHandles(); drawRoom(); render();
       log('Boot ✓\nMode: '+(gl?'WebGL':'2D fallback')+'\nCanvas: '+gc.width+'×'+gc.height);
     }
-    if (document.readyState!=='loading') setTimeout(ensureReady,0); else window.addEventListener('DOMContentLoaded',ensureReady);
+    if(document.readyState!=='loading') setTimeout(ensureReady,0); else window.addEventListener('DOMContentLoaded', ensureReady);
   })();
   </script>
 </body>

@@ -35,7 +35,7 @@ export const handler = async (event) => {
 
     const userParts = [];
     if (roomImageDataURL) userParts.push({ type: "input_image", image_url: roomImageDataURL });
-    const last = (messages[messages.length - 1]?.content) || "Detect the floor and replace it using the provided plank texture.";
+    const last = (messages[messages.length - 1]?.content) || "Detect the floor and return the floor polygon (quad).";
     userParts.push({ type: "input_text", text: last });
     if (textureUrl) userParts.push({ type: "input_text", text: `Texture URL hint: ${textureUrl}` });
 
@@ -43,12 +43,12 @@ export const handler = async (event) => {
       model: process.env.MODEL || "gpt-4o",
       messages: [
         { role: "system", content:
-`You are an AI floor configurator. Detect the floor and respond with ONE tool call (apply_floor_config).
+`You are an AI floor configurator. Detect the floor in the user's photo and respond with ONE tool call (apply_floor_config).
 Return floorQuad (4 points [0..1], clockwise from top-left), plus orientation/rotation/scale/randomness and optional textureUrl.
-Avoid rugs/furniture; include short 'notes' if unsure.` },
+Ignore rugs/furniture when outlining the floor.` },
         { role: "user", content: userParts }
       ],
-      tools, tool_choice: "auto", temperature: 0.3
+      tools, tool_choice: "auto", temperature: 0.2
     });
 
     const m = chat.choices?.[0]?.message;
