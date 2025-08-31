@@ -2,13 +2,18 @@ import OpenAI from "openai";
 
 export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: cors(), body: "" };
-  if (event.httpMethod !== "POST") return { statusCode: 405, headers: cors(), body: "Only POST" };
+  if (event.httpMethod !== "POST")  return { statusCode: 405, headers: cors(), body: "Only POST" };
+
   try {
     const { messages = [], roomImageDataURL = null, textureUrl = "" } = JSON.parse(event.body || "{}");
-    if (!process.env.OPENAI_API_KEY) {
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
       return { statusCode: 500, headers: cors(), body: JSON.stringify({ error: "Missing OPENAI_API_KEY env var" }) };
     }
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+    const client = new OpenAI({ apiKey });
+    const model = process.env.MODEL || "gpt-4o-mini"; // cheaper default
 
     const tools = [{
       type: "function",
@@ -18,8 +23,11 @@ export const handler = async (event) => {
         parameters: {
           type: "object",
           properties: {
-            floorQuad: { type: "array", minItems:4, maxItems:4,
-              items: { type:"object", properties:{ x:{type:"number"}, y:{type:"number"} }, required:["x","y"] } },
+            floorQuad: {
+              description: "Four points normalized [0..1], clockwise from top-left",
+              type: "array", minItems: 4, maxItems: 4,
+              items: { type: "object", properties: { x:{type:"number"}, y:{type:"number"} }, required:["x","y"] }
+            },
             orientation: { type: "string", enum: ["horizontal","vertical"] },
             rotationDegrees: { type: "number" },
             scale: { type: "number" },
@@ -35,17 +43,17 @@ export const handler = async (event) => {
 
     const userParts = [];
     if (roomImageDataURL) userParts.push({ type: "input_image", image_url: roomImageDataURL });
-    const last = (messages[messages.length - 1]?.content) || "Detect the floor and return the floor polygon (quad).";
+    const last = (messages[messages.length - 1]?.content) || "Detect the floor polygon and suggested tiling params.";
     userParts.push({ type: "input_text", text: last });
     if (textureUrl) userParts.push({ type: "input_text", text: `Texture URL hint: ${textureUrl}` });
 
     const chat = await client.chat.completions.create({
-      model: process.env.MODEL || "gpt-4o",
+      model,
       messages: [
         { role: "system", content:
-`You are an AI floor configurator. Detect the floor in the user's photo and respond with ONE tool call (apply_floor_config).
-Return floorQuad (4 points [0..1], clockwise from top-left), plus orientation/rotation/scale/randomness and optional textureUrl.
-Ignore rugs/furniture when outlining the floor.` },
+`You are an AI floor configurator. Respond with ONE tool call (apply_floor_config) including:
+- floorQuad: 4 points normalized [0..1], clockwise from top-left (floor only).
+- orientation, rotationDegrees, scale, randomness, optional textureUrl.` },
         { role: "user", content: userParts }
       ],
       tools, tool_choice: "auto", temperature: 0.2
@@ -59,9 +67,16 @@ Ignore rugs/furniture when outlining the floor.` },
         actions.push({ name: t.function.name, arguments: args });
       }
     }
+
     return { statusCode: 200, headers: cors(), body: JSON.stringify({ text: m?.content || "", actions }) };
-  } catch (e) {
-    return { statusCode: 500, headers: cors(), body: JSON.stringify({ error: String(e?.message || e) }) };
+
+  } catch (err) {
+    const status = err?.status || err?.response?.status || 500;
+    const message =
+      err?.response?.data?.error?.message ||
+      err?.message ||
+      "Unknown server error";
+    return { statusCode: status, headers: cors(), body: JSON.stringify({ error: message, status }) };
   }
 };
 
