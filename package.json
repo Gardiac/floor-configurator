@@ -1,5 +1,5 @@
 {
-  "name": "ai-floor-configurator-compact",
+  "name": "ai-floor-configurator-compact-refiner",
   "private": true,
   "type": "module",
   "dependencies": {

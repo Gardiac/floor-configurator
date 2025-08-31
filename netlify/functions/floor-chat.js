@@ -34,7 +34,7 @@ export const handler = async (event) => {
 
     const parts = [{ type:"text", text: messages[messages.length-1]?.content || "Detect the floor polygon" }];
     if (roomImageDataURL) parts.push({ type:"image_url", image_url:{ url: roomImageDataURL, detail: "high" }});
-    if (textureUrl) parts.push({ type:"text", text:`Texture hint: ${textureUrl}` });
+    if (TextureUrl) parts.push({ type:"text", text:`Texture hint: ${textureUrl}` });
 
     const chat = await client.chat.completions.create({
       model, temperature:0.2,

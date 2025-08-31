@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AI Floor Configurator — v4 (compact)</title>
+<title>AI Floor Configurator — v4 (compact + refiner)</title>
 <style>
   :root{--line:#e8e2da;--ink:#2b241e;--mut:#7b6a5a;--bg:#f7f4ef;--card:#fffdf9;--accent:#c07a3a}
   body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,Segoe UI,Roboto}
@@ -21,10 +21,11 @@
   .h{position:absolute;width:14px;height:14px;border-radius:50%;background:var(--accent);border:2px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.25);transform:translate(-50%,-50%);cursor:grab}
   #msg{position:fixed;right:12px;bottom:12px;padding:8px 10px;border:1px solid var(--line);background:#fff;border-radius:10px;display:none}
   #debug{position:fixed;left:12px;bottom:12px;padding:8px 10px;border:1px solid var(--line);background:#fff;border-radius:10px;white-space:pre;max-width:50ch;display:none}
+  .mut{color:var(--mut);font-size:12px}
 </style>
 </head>
 <body>
-<header><b>🪵 AI Floor Configurator — v4</b><span id="mode">(2D)</span></header>
+<header><b>🪵 AI Floor Configurator — v4</b><span class="mut">&nbsp;(2D, with seam refiner)</span></header>
 <main>
   <section class="panel">
     <h3>Assets</h3>
@@ -80,7 +81,7 @@
   $('scale').addEventListener('input', e=>{ state.scale=+e.target.value; $('sv').textContent=state.scale.toFixed(1); render(); });
   $('rot').addEventListener('input', e=>{ state.rot=+e.target.value; $('rv').textContent=state.rot.toFixed(1)+'°'; render(); });
 
-  $('auto').addEventListener('click', ()=>{ const h=coarse(); if(h){ state.quad=h; syncHandles(); render(); tip('Auto-detect done'); }});
+  $('auto').addEventListener('click', ()=>{ const h=coarse(); if(h){ state.quad=refineTopEdgeWithSeam(h); syncHandles(); render(); tip('Auto-detect refined'); }});
   $('ai').addEventListener('click', aiRun);
   $('save').addEventListener('click', ()=>{ const c=document.createElement('canvas'); c.width=out.width; c.height=out.height; const cx=c.getContext('2d'); cx.drawImage(room,0,0); cx.drawImage(out,0,0); const a=document.createElement('a'); a.href=c.toDataURL('image/png'); a.download='floor.png'; a.click(); });
 
@@ -109,6 +110,7 @@
     octx.fillStyle=state.pattern; octx.fillRect(0,0,w,h); octx.restore();
   }
 
+  // --- Coarse floor quad (hint) ---
   function coarse(){ if(!state.roomImg) return null; const W=room.width,H=room.height, c=document.createElement('canvas'); c.width=360; c.height=Math.round(360*H/W); const cx=c.getContext('2d');
     const s=Math.max(c.width/state.roomRect.w, c.height/state.roomRect.h), dw=state.roomRect.w*s, dh=state.roomRect.h*s, dx=(c.width-dw)/2 - state.roomRect.x*s, dy=(c.height-dh)/2 - state.roomRect.y*s;
     cx.drawImage(room,0,0,room.width,room.height, dx,dy,dw,dh);
@@ -118,6 +120,59 @@
     const yN=yTop/c.height; return [{x:.18,y:yN},{x:.82,y:yN},{x:.92,y:.96},{x:.08,y:.96}];
   }
 
+  // --- Seam refinement (snap top edge to real baseboard seam) ---
+  function refineTopEdgeWithSeam(q){
+    const W = out.width, H = out.height;
+    if (!q || q.length !== 4 || !state.roomImg) return q;
+
+    const tl = { x: q[0].x * W, y: q[0].y * H };
+    const tr = { x: q[1].x * W, y: q[1].y * H };
+
+    const img = rctx.getImageData(0, 0, room.width, room.height);
+    const data = img.data, w = img.width, h = img.height;
+
+    const SAMPLES = 80;
+    const WIN = Math.max(6, Math.round(H * 0.05));
+    const xs = [], ys = [];
+
+    for (let i = 0; i < SAMPLES; i++) {
+      const t = i / (SAMPLES - 1);
+      const x = tl.x * (1 - t) + tr.x * t;
+      const y0 = tl.y * (1 - t) + tr.y * t;
+
+      const xi = Math.max(1, Math.min(w - 2, Math.round(x)));
+      const yStart = Math.max(1, Math.min(h - 2, Math.round(y0 - WIN)));
+      const yEnd   = Math.max(1, Math.min(h - 2, Math.round(y0 + WIN)));
+
+      let bestY = y0, bestScore = -1;
+      for (let y = yStart; y <= yEnd; y++) {
+        const i1 = ((y - 1) * w + xi) * 4;
+        const i2 = ((y + 1) * w + xi) * 4;
+        const g1 = data[i1] * .299 + data[i1 + 1] * .587 + data[i1 + 2] * .114;
+        const g2 = data[i2] * .299 + data[i2 + 1] * .587 + data[i2 + 2] * .114;
+        const score = Math.abs(g2 - g1);
+        if (score > bestScore) { bestScore = score; bestY = y; }
+      }
+      xs.push(x); ys.push(bestY);
+    }
+
+    let sx = 0, sy = 0, sxx = 0, sxy = 0;
+    for (let i = 0; i < xs.length; i++) { sx += xs[i]; sy += ys[i]; sxx += xs[i] * xs[i]; sxy += xs[i] * ys[i]; }
+    const n = xs.length;
+    const a = (n * sxy - sx * sy) / Math.max(1e-6, (n * sxx - sx * sx));
+    const b = (sy - a * sx) / n;
+
+    const newTLy = (a * tl.x + b) / H;
+    const newTRy = (a * tr.x + b) / H;
+
+    return [
+      { x: clamp01(q[0].x), y: clamp01(newTLy) },
+      { x: clamp01(q[1].x), y: clamp01(newTRy) },
+      q[2], q[3]
+    ];
+  }
+
+  // Helpers
   function clamp01(x){ return Math.max(0,Math.min(1,x)); }
   function isBad(q){ if(!q||q.length!=4) return true; const ys=q.map(p=>p.y), minY=Math.min(...ys), maxY=Math.max(...ys); if(minY<0.1||maxY>1.02) return true; const A=polyArea(q,out.width,out.height), area=out.width*out.height; return A<0.05*area; }
   function polyArea(q,w,h){ const p=q.map(pt=>({x:pt.x*w,y:pt.y*h})); let a=0; for(let i=0;i<4;i++){ const j=(i+1)%4; a+=p[i].x*p[j].y-p[j].x*p[i].y; } return Math.abs(a)/2; }
@@ -131,9 +186,10 @@
   function iou(a,b){ function bb(q){const xs=q.map(p=>p.x), ys=q.map(p=>p.y); return {minx:Math.min(...xs),maxx:Math.max(...xs),miny:Math.min(...ys),maxy:Math.max(...ys)}}
     const A=bb(a), B=bb(b); const ix=Math.max(0,Math.min(A.maxx,B.maxx)-Math.max(A.minx,B.minx)); const iy=Math.max(0,Math.min(A.maxy,B.maxy)-Math.max(A.miny,B.miny)); const inter=ix*iy; const u=(A.maxx-A.minx)*(A.maxy-A.miny)+(B.maxx-B.minx)*(B.maxy-B.miny)-inter; return u<=0?0:inter/u; }
 
+  // --- AI call & application ---
   async function aiRun(){
     if(!state.roomImg) return tip('Upload a room photo first');
-    const hint=coarse(); if(hint){ state.quad=hint; syncHandles(); render(); }
+    const hint=coarse(); if(hint){ state.quad=refineTopEdgeWithSeam(hint); syncHandles(); render(); }
     tip('Detecting…');
     try{
       const roomData=await toDataURL(state.roomImg,512);
@@ -143,7 +199,7 @@
       if(!res.ok){ throw new Error(data?.error || txt || ('HTTP '+res.status)); }
       if(Array.isArray(data.actions)){ data.actions.forEach(applyAction); }
       tip('Done');
-    }catch(e){ log('AI failed: '+e.message); const h=coarse(); if(h){ state.quad=h; syncHandles(); render(); tip('Fallback used'); } }
+    }catch(e){ log('AI failed: '+e.message); const h=coarse(); if(h){ state.quad=refineTopEdgeWithSeam(h); syncHandles(); render(); tip('Fallback used'); } }
   }
 
   function applyAction(action){
@@ -154,8 +210,11 @@
       let qImg=qN.map(imgToCanvas), qCan=qN.map(p=>({x:clamp01(p.x),y:clamp01(p.y)}));
       qImg=sortCW(qImg); qCan=sortCW(qCan);
       function score(q){ if(!q||q.length!=4) return -1; if(isBad(q)) return -0.5; return 1 + iou(q,hint); }
-      const q = score(qImg)>=score(qCan) ? qImg : qCan;
-      state.quad = isBad(q) ? hint : q;
+      let q = score(qImg)>=score(qCan) ? qImg : qCan;
+      if (isBad(q)) q = hint;
+      // --- refiner hook ---
+      q = refineTopEdgeWithSeam(q);
+      state.quad = q;
       syncHandles(); render();
     }
     if(typeof a.scale==='number') state.scale=a.scale;
