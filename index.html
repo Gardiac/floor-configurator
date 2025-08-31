@@ -313,7 +313,7 @@
         const text = await resp.text(); let data={}; try{
         if (Date.now() < aiCooldownUntil) { tip('AI cooling down; using Auto‑detect.'); autoDetectFloor(); return; } data=JSON.parse(text); }catch(_){};
         if(!resp.ok){ const msg=data?.error || text || ('HTTP '+resp.status);
-        if(resp.status===429){ const secs=parseRetryAfter(msg); disableAI(secs||300); }
+        if(resp.status===429){ const retry = (data && data.retryAfterSeconds) ? data.retryAfterSeconds : parseRetryAfter(msg); disableAI(retry||300); }
         throw new Error(msg); }
         if(Array.isArray(data.actions)) data.actions.forEach(runAction);
         if (data.text) tip(data.text);
