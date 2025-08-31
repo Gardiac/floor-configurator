@@ -1,494 +1,172 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html>
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AI Floor Configurator — v4</title>
-  <style>
-    :root{ --bg:#f6f3ef; --text:#2b241e; --muted:#6f5f52; --panel:#fffdf9; --accent:#b87333; --line:#e6ded5; --shadow:0 10px 24px rgba(45,33,23,.08); }
-    *{box-sizing:border-box} html,body{height:100%}
-    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial}
-    header{position:sticky;top:0;z-index:10;display:flex;gap:12px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line);background:#fff}
-    header b{font-weight:700}
-    main{display:grid;grid-template-columns:340px 1fr;gap:16px;padding:16px}
-    .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:12px}
-    .row{display:flex;gap:8px;align-items:center;margin:8px 0}
-    .row > *{flex:1}
-    label{font-size:12px;color:var(--muted)}
-    input[type=file],input[type=url],input[type=text]{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--text)}
-    input[type=range]{width:100%}
-    .btn{appearance:none;cursor:pointer;border:1px solid #d9c9b8;background:linear-gradient(180deg,#fff,#f6efe6);color:#5a3f2c;padding:10px 12px;border-radius:12px;font-weight:700;box-shadow:0 2px 0 #e8d8c8}
-    .btn.primary{background:linear-gradient(180deg,#e7a563,#d68a48);color:#fff;border-color:#c77c3a;box-shadow:0 2px 0 #b46e34}
-    #canvasWrap{position:relative;height:calc(100vh - 170px);min-height:360px;background:#fff;border-radius:16px;border:1px solid var(--line);overflow:hidden}
-    canvas{display:block;width:100%;height:100%}
-    #roomCanvas{position:absolute;inset:0;z-index:0}
-    #glCanvas{position:absolute;inset:0;z-index:1;background:transparent}
-    .handle{position:absolute;width:14px;height:14px;border-radius:50%;background:var(--accent);border:2px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.25);transform:translate(-50%,-50%);cursor:grab;z-index:2}
-    #toast{position:fixed;right:16px;bottom:16px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:var(--shadow);color:#666;font-size:12px;max-width:50ch;display:none}
-    #debug{position:fixed;left:16px;bottom:16px;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:var(--shadow);color:#7d5a3d;font-size:12px;max-width:60ch;display:none;white-space:pre-wrap}
-    .small{font-size:12px;color:var(--muted)}
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Floor Configurator — v4 (compact)</title>
+<style>
+  :root{--line:#e8e2da;--ink:#2b241e;--mut:#7b6a5a;--bg:#f7f4ef;--card:#fffdf9;--accent:#c07a3a}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,Segoe UI,Roboto}
+  header{display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line);background:#fff;position:sticky;top:0;z-index:5}
+  main{display:grid;grid-template-columns:320px 1fr;gap:12px;padding:12px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;box-shadow:0 10px 22px rgba(0,0,0,.05)}
+  .row{display:flex;gap:8px;align-items:center;margin:8px 0}
+  .row>*{flex:1}
+  label{font-size:12px;color:var(--mut)}
+  input[type=file],input[type=url],input[type=text]{padding:9px 10px;border:1px solid var(--line);border-radius:10px}
+  .btn{padding:9px 10px;border:1px solid #d8c9b9;border-radius:10px;background:#fff;cursor:pointer}
+  .btn.primary{background:linear-gradient(180deg,#e7a563,#d68a48);color:#fff;border-color:#c77c3a}
+  #wrap{position:relative;height:calc(100vh - 160px);min-height:360px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff}
+  canvas{position:absolute;inset:0;width:100%;height:100%}
+  .h{position:absolute;width:14px;height:14px;border-radius:50%;background:var(--accent);border:2px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.25);transform:translate(-50%,-50%);cursor:grab}
+  #msg{position:fixed;right:12px;bottom:12px;padding:8px 10px;border:1px solid var(--line);background:#fff;border-radius:10px;display:none}
+  #debug{position:fixed;left:12px;bottom:12px;padding:8px 10px;border:1px solid var(--line);background:#fff;border-radius:10px;white-space:pre;max-width:50ch;display:none}
+</style>
 </head>
 <body>
-  <header>
-    <b>🪵 AI Floor Configurator — v4</b>
-    <span id="modeTag" class="small"></span>
-  </header>
+<header><b>🪵 AI Floor Configurator — v4</b><span id="mode">(2D)</span></header>
+<main>
+  <section class="panel">
+    <h3>Assets</h3>
+    <div class="row"><label>Room photo</label><input id="roomFile" type="file" accept="image/*"></div>
+    <div class="row"><label>Plank texture</label><input id="texFile" type="file" accept="image/*"></div>
+    <div class="row"><label>Plank from URL</label><input id="texUrl" type="url" placeholder="https://…/plank.jpg"><button id="loadUrl" class="btn">Load</button></div>
+    <h3>AI & Detection</h3>
+    <div class="row"><input id="prompt" type="text" placeholder="Replace the floor using the texture"></div>
+    <div class="row"><button id="ai" class="btn primary">Detect & Replace (AI)</button><button id="auto" class="btn">Auto‑detect (basic)</button></div>
+    <h3>Layout</h3>
+    <div class="row"><label>Scale <span id="sv">1.0</span></label><input id="scale" type="range" min="0.2" max="4" step="0.05" value="1"></div>
+    <div class="row"><label>Rotation <span id="rv">0°</span></label><input id="rot" type="range" min="-90" max="90" step="0.5" value="0"></div>
+    <h3>Export</h3>
+    <div class="row"><button id="save" class="btn">Download PNG</button></div>
+  </section>
+  <section class="panel">
+    <div id="wrap">
+      <canvas id="room"></canvas>
+      <canvas id="out"></canvas>
+      <div class="h" id="h0" style="left:20%;top:70%"></div>
+      <div class="h" id="h1" style="left:80%;top:70%"></div>
+      <div class="h" id="h2" style="left:78%;top:94%"></div>
+      <div class="h" id="h3" style="left:22%;top:94%"></div>
+    </div>
+  </section>
+</main>
+<div id="msg"></div><div id="debug"></div>
+<script>
+(function(){
+  const $=id=>document.getElementById(id);
+  const room=$('room'), out=$('out'), rctx=room.getContext('2d'), octx=out.getContext('2d');
+  const state={roomImg:null, texImg:null, pattern:null, quad:[{x:.2,y:.7},{x:.8,y:.7},{x:.78,y:.94},{x:.22,y:.94}], roomRect:{x:0,y:0,w:0,h:0}, scale:1, rot:0};
+  const msg=$('msg'), dbg=$('debug');
+  function tip(t){ msg.textContent=t; msg.style.display='block'; setTimeout(()=>msg.style.display='none',2500); }
+  function log(t){ dbg.textContent=t||''; dbg.style.display=t?'block':'none'; }
 
-  <main>
-    <section class="panel">
-      <h3 style="margin:6px 0 8px;">Assets</h3>
-      <div class="row"><label>Room photo</label><input id="roomFile" type="file" accept="image/png,image/jpeg,image/webp" /></div>
-      <div class="row"><label>Plank texture</label><input id="texFile" type="file" accept="image/png,image/jpeg,image/webp" /></div>
-      <div class="row"><label>Plank texture (URL)</label><input id="texUrl" type="url" placeholder="https://…/plank.jpg" /><button class="btn" id="btnLoadURL" style="flex:0 0 auto">Load</button></div>
+  function resize(){ const r=$('wrap').getBoundingClientRect(); room.width=r.width; room.height=r.height; out.width=r.width; out.height=r.height; drawRoom(); render(); }
+  window.addEventListener('resize', resize);
 
-      <h3 style="margin:12px 0 8px;">AI & Detection</h3>
-      <div class="row"><input id="prompt" type="text" placeholder="e.g., Replace the floor using the texture, rotate 2°" /></div>
-      <div class="row"><button class="btn primary" id="btnAI">Detect & Replace (AI)</button><button class="btn" id="btnAuto">Auto‑detect (basic)</button><button class="btn" id="btnSelf">Self‑test</button></div>
-      <div class="small">If AI is unavailable (quota/auth), the app auto-runs the basic detector so customers still get a result.</div>
+  function readImage(file){ return new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>{ const img=new Image(); img.onload=()=>res(img); img.onerror=()=>rej('decode'); img.src=fr.result; }; fr.onerror=rej; fr.readAsDataURL(file); }); }
+  function loadURL(url){ return new Promise((res,rej)=>{ const img=new Image(); img.crossOrigin='anonymous'; img.onload=()=>res(img); img.onerror=rej; img.src=url; }); }
 
-      <h3 style="margin:12px 0 8px;">Layout</h3>
-      <div class="row"><label>Scale <span id="sv">1.00</span></label><input id="scale" type="range" min="0.2" max="4" step="0.01" value="1" /></div>
-      <div class="row"><label>Rotation <span id="rv">0°</span></label><input id="rot" type="range" min="-90" max="90" step="0.5" value="0" /></div>
-      <div class="row"><button class="btn" id="btnH">Horizontal</button><button class="btn" id="btnV">Vertical</button></div>
+  $('roomFile').addEventListener('change', async e=>{
+    const f=e.target.files?.[0]; if(!f) return; state.roomImg=await readImage(f); drawRoom(); render(); tip('Room loaded');
+  });
+  $('texFile').addEventListener('change', async e=>{
+    const f=e.target.files?.[0]; if(!f) return; state.texImg=await readImage(f); buildPattern(); render(); tip('Texture loaded');
+  });
+  $('loadUrl').addEventListener('click', async ()=>{
+    const u=$('texUrl').value.trim(); if(!u) return tip('Enter a URL'); try{ state.texImg=await loadURL(u); buildPattern(); render(); }catch(e){ tip('Failed to load URL (CORS?)'); }
+  });
 
-      <h3 style="margin:12px 0 8px;">Export</h3>
-      <div class="row"><button class="btn" id="btnExport">Download PNG</button><button class="btn" id="btnPing">Sanity</button></div>
-    </section>
+  $('scale').addEventListener('input', e=>{ state.scale=+e.target.value; $('sv').textContent=state.scale.toFixed(1); render(); });
+  $('rot').addEventListener('input', e=>{ state.rot=+e.target.value; $('rv').textContent=state.rot.toFixed(1)+'°'; render(); });
 
-    <section class="panel">
-      <div id="canvasWrap">
-        <canvas id="roomCanvas"></canvas>
-        <canvas id="glCanvas"></canvas>
-        <div class="handle" id="h0" style="left: 20%; top: 68%"></div>
-        <div class="handle" id="h1" style="left: 80%; top: 68%"></div>
-        <div class="handle" id="h2" style="left: 76%; top: 92%"></div>
-        <div class="handle" id="h3" style="left: 24%; top: 92%"></div>
-      </div>
-    </section>
-  </main>
+  $('auto').addEventListener('click', ()=>{ const h=coarse(); if(h){ state.quad=h; syncHandles(); render(); tip('Auto-detect done'); }});
+  $('ai').addEventListener('click', aiRun);
+  $('save').addEventListener('click', ()=>{ const c=document.createElement('canvas'); c.width=out.width; c.height=out.height; const cx=c.getContext('2d'); cx.drawImage(room,0,0); cx.drawImage(out,0,0); const a=document.createElement('a'); a.href=c.toDataURL('image/png'); a.download='floor.png'; a.click(); });
 
-  <div id="toast"></div>
-  <div id="debug"></div>
+  const hs=[0,1,2,3].map(i=>$('h'+i));
+  function syncHandles(){ for(let i=0;i<4;i++){ hs[i].style.left=(state.quad[i].x*100)+'%'; hs[i].style.top=(state.quad[i].y*100)+'%'; } }
+  hs.forEach((el,i)=>{ let drag=false; el.addEventListener('pointerdown',e=>{drag=true; el.setPointerCapture(e.pointerId);});
+    el.addEventListener('pointerup',e=>{drag=false; el.releasePointerCapture(e.pointerId);});
+    el.addEventListener('pointermove',e=>{ if(!drag) return; const r=out.getBoundingClientRect(); const x=(e.clientX-r.left)/r.width, y=(e.clientY-r.top)/r.height; state.quad[i]={x:clamp01(x),y:clamp01(y)}; render(); syncHandles(); });
+  });
 
-  <script>
-  (function(){
-    // persistent AI cooldown across reloads
-    let aiCooldownUntil = 0;
-    const COOLDOWN_KEY = 'aiCooldownUntil';
+  function drawRoom(){
+    const w=room.width,h=room.height; rctx.clearRect(0,0,w,h);
+    if(!state.roomImg) return;
+    const iw=state.roomImg.width, ih=state.roomImg.height;
+    const s=Math.max(w/iw,h/ih), dw=iw*s, dh=ih*s, dx=(w-dw)/2, dy=(h-dh)/2;
+    state.roomRect={x:dx,y:dy,w:dw,h:dh};
+    rctx.drawImage(state.roomImg,dx,dy,dw,dh);
+  }
 
-    const $ = (id)=>document.getElementById(id);
-    const toast=$('toast'), debug=$('debug'), modeTag=$('modeTag');
-    function tip(m){ toast.textContent=m; toast.style.display='block'; setTimeout(()=>toast.style.display='none',3000); }
-    function log(m){ if(m){debug.textContent=m;debug.style.display='block';} else {debug.textContent='';debug.style.display='none';} }
-    window.addEventListener('error', e=>{ log('JS error: '+(e.message||e)); });
+  function buildPattern(){ if(!state.texImg) return; const c=document.createElement('canvas'); c.width=512; c.height=512; const cx=c.getContext('2d'); cx.drawImage(state.texImg,0,0,512,512); state.pattern=cx.createPattern(c,'repeat'); }
 
-    const wrap=$('canvasWrap'), rc=$('roomCanvas'), gc=$('glCanvas'), rctx=rc.getContext('2d');
-    const state={
-      roomImage:null, plankImage:null, plankPattern:null, plankTexture:null,
-      quad:[{x:.2,y:.68},{x:.8,y:.68},{x:.76,y:.92},{x:.24,y:.92}],
-      roomRect:{x:0,y:0,w:0,h:0},
-      scale:1, rotationDeg:0, orientation:'horizontal',
-      textureUrl:'',
-    };
+  function render(){ const w=out.width,h=out.height; octx.clearRect(0,0,w,h); if(!state.pattern) return;
+    octx.save(); octx.beginPath(); octx.moveTo(state.quad[0].x*w,state.quad[0].y*h); for(let i=1;i<4;i++) octx.lineTo(state.quad[i].x*w,state.quad[i].y*h); octx.closePath(); octx.clip();
+    const cx=(state.quad[0].x*w+state.quad[2].x*w)/2, cy=(state.quad[0].y*h+state.quad[2].y*h)/2;
+    octx.translate(cx,cy); octx.rotate(state.rot*Math.PI/180); octx.scale(state.scale,state.scale); octx.translate(-cx,-cy);
+    octx.fillStyle=state.pattern; octx.fillRect(0,0,w,h); octx.restore();
+  }
 
-    // listeners
-    $('btnPing').addEventListener('click', ()=> alert('JS running ✓'));
-    $('btnSelf').addEventListener('click', drawSelfTest);
-    $('btnAuto').addEventListener('click', autoDetectFloor);
-    $('btnAI').addEventListener('click', ()=>{
-      const left = aiCooldownUntil - Date.now();
-      if (left > 0){ tip('AI cooling down; using Auto‑detect.'); autoDetectFloor(); return; }
-      callRemote($('prompt').value.trim());
-    });
-    $('btnH').addEventListener('click', ()=>{ state.orientation='horizontal'; mesh=null; render(); });
-    $('btnV').addEventListener('click', ()=>{ state.orientation='vertical'; mesh=null; render(); });
-    $('scale').addEventListener('input', e=>{ state.scale=+e.target.value; $('sv').textContent=state.scale.toFixed(2); mesh=null; render(); });
-    $('rot').addEventListener('input',   e=>{ state.rotationDeg=+e.target.value; $('rv').textContent=state.rotationDeg.toFixed(1)+'°'; mesh=null; render(); });
-    $('btnLoadURL').addEventListener('click', ()=>{ const u=$('texUrl').value.trim(); if(!u) return tip('Enter a texture URL'); state.textureUrl=u; loadImageURL(u).then(img=>{ state.plankImage=img; buildPlankAssets(); render(); }).catch(e=>{ tip('Could not load texture URL (CORS?)'); log(String(e)); }); });
+  function coarse(){ if(!state.roomImg) return null; const W=room.width,H=room.height, c=document.createElement('canvas'); c.width=360; c.height=Math.round(360*H/W); const cx=c.getContext('2d');
+    const s=Math.max(c.width/state.roomRect.w, c.height/state.roomRect.h), dw=state.roomRect.w*s, dh=state.roomRect.h*s, dx=(c.width-dw)/2 - state.roomRect.x*s, dy=(c.height-dh)/2 - state.roomRect.y*s;
+    cx.drawImage(room,0,0,room.width,room.height, dx,dy,dw,dh);
+    const img=cx.getImageData(0,0,c.width,c.height), d=img.data; const row=new Float32Array(c.height);
+    for(let y=1;y<c.height-1;y++){ let sum=0; for(let x=1;x<c.width-1;x++){ const i=(y*c.width+x)*4; const g=d[i]*.299+d[i+1]*.587+d[i+2]*.114; const g1=d[i-4]*.299+d[i-3]*.587+d[i-2]*.114; sum+=Math.abs(g-g1);} row[y]=sum/c.width; }
+    let yTop=0,best=-1; for(let y=Math.floor(c.height*.35);y<Math.floor(c.height*.9);y++){ if(row[y]>best){best=row[y]; yTop=y;} }
+    const yN=yTop/c.height; return [{x:.18,y:yN},{x:.82,y:yN},{x:.92,y:.96},{x:.08,y:.96}];
+  }
 
-    $('roomFile').addEventListener('change', async e=>{
-      const f=e.target.files?.[0]; if(!f) return;
-      try{ const img=await readImage(f); state.roomImage=img; drawRoom(); render(); tip('Room loaded'); }catch(err){ log('Room load error: '+(err?.message||err)); }
-    });
-    $('texFile').addEventListener('change', async e=>{
-      const f=e.target.files?.[0]; if(!f) return;
-      try{ const img=await readImage(f); state.plankImage=img; buildPlankAssets(); render(); tip('Texture ready'); }catch(err){ log('Texture load error: '+(err?.message||err)); }
-    });
+  function clamp01(x){ return Math.max(0,Math.min(1,x)); }
+  function isBad(q){ if(!q||q.length!=4) return true; const ys=q.map(p=>p.y), minY=Math.min(...ys), maxY=Math.max(...ys); if(minY<0.1||maxY>1.02) return true; const A=polyArea(q,out.width,out.height), area=out.width*out.height; return A<0.05*area; }
+  function polyArea(q,w,h){ const p=q.map(pt=>({x:pt.x*w,y:pt.y*h})); let a=0; for(let i=0;i<4;i++){ const j=(i+1)%4; a+=p[i].x*p[j].y-p[j].x*p[i].y; } return Math.abs(a)/2; }
+  function sortCW(q){ const t=[...q].sort((a,b)=>a.y-b.y||a.x-b.x); const top=t.slice(0,2).sort((a,b)=>a.x-b.x); const bot=t.slice(2).sort((a,b)=>a.x-b.x); return [top[0],top[1],bot[1],bot[0]]; }
+  function imgToCanvas(p){ const rr=state.roomRect, W=out.width,H=out.height; return {x:clamp01((rr.x+p.x*rr.w)/W), y:clamp01((rr.y+p.y*rr.h)/H)}; }
+  function normalize(q){ const xs=q.map(p=>+p.x), ys=q.map(p=>+p.y); const maxX=Math.max(...xs), maxY=Math.max(...ys);
+    if(maxX<=1.5 && maxY<=1.5) return q.map(p=>({x:clamp01(+p.x), y:clamp01(+p.y)}));
+    if(maxX<=100.5 && maxY<=100.5) return q.map(p=>({x:clamp01(+p.x/100), y:clamp01(+p.y/100)}));
+    const W=out.width,H=out.height; return q.map(p=>({x:clamp01(+p.x/W), y:clamp01(+p.y/H)}));
+  }
+  function iou(a,b){ function bb(q){const xs=q.map(p=>p.x), ys=q.map(p=>p.y); return {minx:Math.min(...xs),maxx:Math.max(...xs),miny:Math.min(...ys),maxy:Math.max(...ys)}}
+    const A=bb(a), B=bb(b); const ix=Math.max(0,Math.min(A.maxx,B.maxx)-Math.max(A.minx,B.minx)); const iy=Math.max(0,Math.min(A.maxy,B.maxy)-Math.max(A.miny,B.miny)); const inter=ix*iy; const u=(A.maxx-A.minx)*(A.maxy-A.miny)+(B.maxx-B.minx)*(B.maxy-B.miny)-inter; return u<=0?0:inter/u; }
 
-    function setCooldown(seconds){
-      aiCooldownUntil = Date.now() + (seconds*1000);
-      try{ localStorage.setItem(COOLDOWN_KEY, String(aiCooldownUntil)); }catch(_){}
-      const btn = $('btnAI'); if (btn){ btn.disabled = true; btn.textContent = 'AI (cooling down)'; }
-      scheduleCooldownCheck();
+  async function aiRun(){
+    if(!state.roomImg) return tip('Upload a room photo first');
+    const hint=coarse(); if(hint){ state.quad=hint; syncHandles(); render(); }
+    tip('Detecting…');
+    try{
+      const roomData=await toDataURL(state.roomImg,512);
+      const payload={ messages:[{role:'user',content: $('prompt').value.trim()||'Detect the floor'}], roomImageDataURL: roomData, textureUrl:'', hintQuad: hint };
+      const res=await fetch('/.netlify/functions/floor-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const txt=await res.text(); let data={}; try{ data=JSON.parse(txt);}catch(_){}
+      if(!res.ok){ throw new Error(data?.error || txt || ('HTTP '+res.status)); }
+      if(Array.isArray(data.actions)){ data.actions.forEach(applyAction); }
+      tip('Done');
+    }catch(e){ log('AI failed: '+e.message); const h=coarse(); if(h){ state.quad=h; syncHandles(); render(); tip('Fallback used'); } }
+  }
+
+  function applyAction(action){
+    const a=action?.arguments||{}; log('AI action\n'+JSON.stringify(a,null,2));
+    if(Array.isArray(a.floorQuad)&&a.floorQuad.length===4){
+      const hint=[...state.quad];
+      const qN=normalize(a.floorQuad);
+      let qImg=qN.map(imgToCanvas), qCan=qN.map(p=>({x:clamp01(p.x),y:clamp01(p.y)}));
+      qImg=sortCW(qImg); qCan=sortCW(qCan);
+      function score(q){ if(!q||q.length!=4) return -1; if(isBad(q)) return -0.5; return 1 + iou(q,hint); }
+      const q = score(qImg)>=score(qCan) ? qImg : qCan;
+      state.quad = isBad(q) ? hint : q;
+      syncHandles(); render();
     }
-    function scheduleCooldownCheck(){
-      const btn = $('btnAI');
-      const tick = ()=>{
-        const left = aiCooldownUntil - Date.now();
-        if (left <= 0){
-          if (btn){ btn.disabled = false; btn.textContent = 'Detect & Replace (AI)'; }
-        } else {
-          if (btn){ btn.disabled = true; btn.textContent = 'AI (cooling down)'; }
-          setTimeout(tick, Math.min(30000, left));
-        }
-      };
-      setTimeout(tick, 1000);
-    }
-    function restoreCooldown(){
-      try{ const v = localStorage.getItem(COOLDOWN_KEY); if (v){ aiCooldownUntil = parseInt(v,10) || 0; if (Date.now() < aiCooldownUntil) scheduleCooldownCheck(); } }catch(_){}
-    }
+    if(typeof a.scale==='number') state.scale=a.scale;
+    if(typeof a.rotationDegrees==='number') state.rot=a.rotationDegrees;
+    $('sv').textContent=state.scale.toFixed(1); $('rv').textContent=state.rot.toFixed(1)+'°';
+  }
 
-    // sizing
-    function resize(){ const r=wrap.getBoundingClientRect(); rc.width=r.width; rc.height=r.height; gc.width=r.width; gc.height=r.height; if(gl) gl.viewport(0,0,gc.width,gc.height); drawRoom(); render(); }
-    window.addEventListener('resize', resize);
+  function toDataURL(img,maxSide){ return new Promise(res=>{ const w=img.naturalWidth||img.width, h=img.naturalHeight||img.height; const s=Math.min(1,(maxSide||512)/Math.max(w,h)); const c=document.createElement('canvas'); c.width=Math.round(w*s); c.height=Math.round(h*s); c.getContext('2d').drawImage(img,0,0,c.width,c.height); res(c.toDataURL('image/jpeg',0.9)); }); }
 
-    // room draw
-    function drawRoom(){
-      const w=rc.width,h=rc.height; rctx.clearRect(0,0,w,h);
-      if(!state.roomImage) return;
-      const iw=state.roomImage.width, ih=state.roomImage.height;
-      const s=Math.max(w/iw,h/ih); const dw=iw*s, dh=ih*s; const dx=(w-dw)/2, dy=(h-dh)/2;
-      state.roomRect={x:dx,y:dy,w:dw,h:dh};
-      rctx.drawImage(state.roomImage,dx,dy,dw,dh);
-      buildLightTexture();
-    }
-
-    // image helpers
-    function readImage(file){
-      return new Promise((res,rej)=>{
-        const rd=new FileReader(); rd.onerror=()=>rej(new Error('read fail'));
-        rd.onload=()=>{ const img=new Image(); img.onload=()=>res(img); img.onerror=()=>rej(new Error('decode fail')); img.src=rd.result; };
-        rd.readAsDataURL(file);
-      });
-    }
-    function loadImageURL(url){
-      return new Promise((res,rej)=>{
-        const img=new Image(); img.crossOrigin='anonymous';
-        img.onload=()=>res(img); img.onerror=(e)=>rej(e); img.src=url;
-      });
-    }
-
-    // WebGL or 2D fallback
-    const gl = gc.getContext('webgl', { alpha:true, premultipliedAlpha:true, antialias:true });
-    modeTag.textContent = gl ? '(WebGL)' : '(2D fallback)';
-    if (gl) gl.clearColor(0,0,0,0);
-
-    // POT helper
-    function toPOT(n){ return Math.pow(2, Math.max(6, Math.ceil(Math.log2(Math.max(1,n))))); }
-    function makePOTCanvas(img){
-      const w=toPOT(img.width), h=toPOT(img.height);
-      const c=document.createElement('canvas'); c.width=w; c.height=h;
-      c.getContext('2d').drawImage(img, 0, 0, w, h);
-      return c;
-    }
-
-    function buildPlankAssets(){
-      if (!state.plankImage) return;
-      const pot = makePOTCanvas(state.plankImage);
-      try {
-        const off = document.createElement('canvas'); off.width=pot.width; off.height=pot.height;
-        const octx = off.getContext('2d'); octx.drawImage(pot,0,0);
-        state.plankPattern = octx.createPattern(off,'repeat');
-      } catch (_){ state.plankPattern = null; }
-      if (gl){
-        const tex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,tex);
-        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,0);
-        gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,pot);
-        gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-        gl.generateMipmap(gl.TEXTURE_2D);
-        gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);
-        gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT);
-        state.plankTexture=tex;
-      }
-    }
-
-    // light texture
-    let lightTex=null;
-    function buildLightTexture(){
-      if(!gl || !state.roomImage) return;
-      const C=document.createElement('canvas'); C.width=64; C.height=64;
-      const cx=C.getContext('2d');
-      const iw=state.roomImage.width, ih=state.roomImage.height;
-      const s=Math.max(C.width/iw, C.height/ih); const w=iw*s, h=ih*s; const x=(C.width-w)/2, y=(C.height-h)/2;
-      cx.drawImage(state.roomImage,x,y,w,h);
-      const t=gl.createTexture(); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,t);
-      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,C);
-      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-      lightTex=t; gl.activeTexture(gl.TEXTURE0);
-    }
-
-    // shader
-    let prog=null, a_pos=0, a_uv=0, u_res=0, u_tex=0, u_light=0, u_roomRect=0, vbo=0, tbo=0, mesh=null;
-    if (gl){
-      const vsrc=`attribute vec2 a_pos;attribute vec2 a_uv;varying vec2 v_uv;varying vec2 v_px;uniform vec2 u_res;void main(){vec2 o=a_pos/u_res*2.0-1.0;gl_Position=vec4(o*vec2(1.0,-1.0),0.0,1.0);v_uv=a_uv;v_px=a_pos;}`;
-      const fsrc=`precision mediump float;varying vec2 v_uv;varying vec2 v_px;uniform sampler2D u_tex;uniform sampler2D u_light;uniform vec4 u_roomRect;void main(){vec3 wood=texture2D(u_tex,v_uv).rgb;vec2 uvRoom=(v_px - u_roomRect.xy)/u_roomRect.zw;float light=1.0; if(uvRoom.x>=0.0&&uvRoom.x<=1.0&&uvRoom.y>=0.0&&uvRoom.y<=1.0){vec3 rc=texture2D(u_light,uvRoom).rgb;float lum=dot(rc,vec3(0.299,0.587,0.114)); light=mix(1.0,lum*1.1+0.45,0.6);} gl_FragColor=vec4(wood*light,1.0);} `;
-      const sh=(t,s)=>{const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o));return o;};
-      prog=gl.createProgram(); gl.attachShader(prog,sh(gl.VERTEX_SHADER,vsrc)); gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,fsrc)); gl.linkProgram(prog);
-      gl.useProgram(prog);
-      a_pos=gl.getAttribLocation(prog,'a_pos'); a_uv=gl.getAttribLocation(prog,'a_uv');
-      u_res=gl.getUniformLocation(prog,'u_res'); u_tex=gl.getUniformLocation(prog,'u_tex'); u_light=gl.getUniformLocation(prog,'u_light'); u_roomRect=gl.getUniformLocation(prog,'u_roomRect');
-      vbo=gl.createBuffer(); tbo=gl.createBuffer();
-      gl.uniform1i(u_tex,0); gl.uniform1i(u_light,1);
-    }
-
-    function buildMesh(cols=48, rows=48){
-      const w=gc.width,h=gc.height,q=state.quad.map(p=>({x:p.x*w,y:p.y*h}));
-      const lerp=(a,b,t)=>a+(b-a)*t, ip=(u,v)=>({x:lerp(lerp(q[0].x,q[1].x,u),lerp(q[3].x,q[2].x,u),v),y:lerp(lerp(q[0].y,q[1].y,u),lerp(q[3].y,q[2].y,u),v)});
-      const verts=[],uvs=[]; const sc=state.scale; const rot=state.rotationDeg*Math.PI/180, c=Math.cos(rot), s=Math.sin(rot);
-      const ro=(u,v)=>({u:u*c - v*s, v:u*s + v*c});
-      for(let y=0;y<rows;y++){ const v0=y/rows,v1=(y+1)/rows;
-        for(let x=0;x<cols;x++){ const u0=x/cols,u1=(x+1)/cols;
-          const p00=ip(u0,v0),p10=ip(u1,v0),p11=ip(u1,v1),p01=ip(u0,v1);
-          let a0=u0,b0=v0,a1=u1,b1=v1;
-          if(state.orientation==='vertical'){ a0=v0; b0=u0; a1=v1; b1=u1; }
-          const r00=ro(a0*sc,b0*sc), r10=ro(a1*sc,b0*sc), r11=ro(a1*sc,b1*sc), r01=ro(a0*sc,b1*sc);
-          verts.push(p00.x,p00.y,p10.x,p10.y,p11.x,p11.y,  p00.x,p00.y,p11.x,p11.y,p01.x,p01.y);
-          uvs.push(r00.u,r00.v, r10.u,r10.v, r11.u,r11.v,  r00.u,r00.v, r11.u,r11.v, r01.u,r01.v);
-        }
-      }
-      mesh={verts:new Float32Array(verts), uvs:new Float32Array(uvs)};
-    }
-
-    // validation helpers
-    function quadArea(q){
-      const w = gc.width, h = gc.height;
-      const pts = q.map(p=>({x:p.x*w, y:p.y*h}));
-      let a=0; for(let i=0;i<4;i++){ const j=(i+1)%4; a += pts[i].x*pts[j].y - pts[j].x*pts[i].y; }
-      return Math.abs(a)/2;
-    }
-    function isBadQuad(q){
-      if(!q || q.length!==4) return true;
-      const ys = q.map(p=>p.y);
-      const miny = Math.min.apply(null, ys), maxy = Math.max.apply(null, ys);
-      if(miny < 0.12) return true;
-      if(maxy > 1.02 || miny < -0.02) return true;
-      const A = quadArea(q);
-      const canvasA = gc.width * gc.height;
-      if (A < 0.05*canvasA) return true;
-      return false;
-    }
-
-    function render(){
-      if(gl){
-        gl.clear(gl.COLOR_BUFFER_BIT);
-        if(!state.plankTexture) return;
-        if(!mesh) buildMesh();
-        gl.useProgram(prog);
-        gl.uniform2f(u_res,gc.width,gc.height);
-        gl.uniform4f(u_roomRect,state.roomRect.x||0,state.roomRect.y||0,Math.max(1,state.roomRect.w||1),Math.max(1,state.roomRect.h||1));
-        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,state.plankTexture);
-        gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,lightTex);
-        gl.bindBuffer(gl.ARRAY_BUFFER,vbo); gl.bufferData(gl.ARRAY_BUFFER,mesh.verts,gl.DYNAMIC_DRAW); gl.enableVertexAttribArray(a_pos); gl.vertexAttribPointer(a_pos,2,gl.FLOAT,false,0,0);
-        gl.bindBuffer(gl.ARRAY_BUFFER,tbo); gl.bufferData(gl.ARRAY_BUFFER,mesh.uvs,gl.DYNAMIC_DRAW); gl.enableVertexAttribArray(a_uv); gl.vertexAttribPointer(a_uv,2,gl.FLOAT,false,0,0);
-        gl.drawArrays(gl.TRIANGLES,0,mesh.verts.length/2);
-      } else {
-        const ctx=gc.getContext('2d'); const w=gc.width,h=gc.height; ctx.clearRect(0,0,w,h);
-        if(!state.plankPattern) return;
-        ctx.save();
-        ctx.beginPath(); ctx.moveTo(state.quad[0].x*w,state.quad[0].y*h); for(let i=1;i<4;i++) ctx.lineTo(state.quad[i].x*w,state.quad[i].y*h); ctx.closePath(); ctx.clip();
-        const cx=(state.quad[0].x*w+state.quad[2].x*w)/2, cy=(state.quad[0].y*h+state.quad[2].y*h)/2;
-        ctx.translate(cx,cy); ctx.rotate(state.rotationDeg*Math.PI/180); ctx.scale(state.scale,state.scale); ctx.translate(-cx,-cy);
-        ctx.fillStyle=state.plankPattern; ctx.fillRect(0,0,w,h);
-        ctx.restore();
-      }
-    }
-
-    // handles
-    const handles=[0,1,2,3].map(i=>$('h'+i));
-    function syncHandles(){ for(let i=0;i<4;i++){ const p=state.quad[i]; handles[i].style.left=(p.x*100)+'%'; handles[i].style.top=(p.y*100)+'%'; } }
-    handles.forEach((el,i)=>{
-      let drag=false; el.addEventListener('pointerdown',e=>{drag=true; el.setPointerCapture(e.pointerId);});
-      el.addEventListener('pointerup',e=>{drag=false; el.releasePointerCapture(e.pointerId);});
-      el.addEventListener('pointermove',e=>{ if(!drag) return; const r=gc.getBoundingClientRect(); const x=(e.clientX-r.left)/r.width, y=(e.clientY-r.top)/r.height; state.quad[i]={x:Math.max(0,Math.min(1,x)), y:Math.max(0,Math.min(1,y))}; mesh=null; syncHandles(); render(); });
-    });
-
-    // export
-    $('btnExport').addEventListener('click', ()=>{
-      const out=document.createElement('canvas'); out.width=gc.width; out.height=gc.height;
-      const cx=out.getContext('2d'); cx.drawImage(rc,0,0); cx.drawImage(gc,0,0);
-      const a=document.createElement('a'); a.href=out.toDataURL('image/png'); a.download='floor-config.png'; a.click();
-    });
-
-    // coarse detector (hint + fallback)
-    function getCoarseQuad(){
-      if(!state.roomImage){ return null; }
-      const W=rc.width,H=rc.height, maxW=480, sc=Math.min(1,maxW/W), sw=Math.max(64,Math.round(W*sc)), sh=Math.max(64,Math.round(H*sc));
-      const c=document.createElement('canvas'); c.width=sw; c.height=sh; const cx=c.getContext('2d'); cx.drawImage(rc,0,0,sw,sh);
-      const img=cx.getImageData(0,0,sw,sh), d=img.data, gray=new Float32Array(sw*sh);
-      for(let i=0,j=0;i<d.length;i+=4,j++) gray[j]=d[i]*.299+d[i+1]*.587+d[i+2]*.114;
-      const mag=new Float32Array(sw*sh);
-      for(let y=1;y<sh-1;y++){ for(let x=1;x<sw-1;x++){ const i0=(y-1)*sw+(x-1),i1=(y-1)*sw+x,i2=(y-1)*sw+(x+1),i3=y*sw+(x-1),i5=y*sw+(x+1),i6=(y+1)*sw+(x-1),i7=(y+1)*sw+x,i8=(y+1)*sw+(x+1); const gx=-gray[i0]+gray[i2]-2*gray[i3]+2*gray[i5]-gray[i6]+gray[i8]; const gy=gray[i0]+2*gray[i1]+gray[i2]-gray[i6]-2*gray[i7]-gray[i8]; mag[y*sw+x]=Math.abs(gx)+Math.abs(gy);} }
-      const yStart=Math.floor(sh*.35), yEnd=Math.floor(sh*.92), row=new Float32Array(sh);
-      for(let y=yStart;y<yEnd;y++){ let s=0; for(let x=0;x<sw;x++) s+=mag[y*sw+x]; row[y]=s/sw; }
-      let yTop=yStart,best=-1; for(let y=yStart;y<yEnd;y++){ if(row[y]>best){ best=row[y]; yTop=y; } }
-      const tl={x:.18,y:(yTop/sc)/H}, tr={x:.82,y:(yTop/sc)/H}, bl={x:.08,y:.96}, br={x:.92,y:.96};
-      return [tl,tr,br,bl];
-    }
-    function autoDetectFloor(){
-      if(!state.roomImage){ tip('Upload a room photo first.'); return; }
-      const h = getCoarseQuad(); if (h){ state.quad=h; mesh=null; syncHandles(); render(); tip('Auto-detect done (fallback).'); autoFitTexture(); render(); }
-    }
-
-    // AI call with hint + guard
-    async function callRemote(userText){
-      if(!state.roomImage){ tip('Upload a room photo first'); return; }
-      tip('Detecting floor…');
-      try{
-        const hint = getCoarseQuad();
-        if (hint){ state.quad = hint; syncHandles(); mesh=null; render(); }
-
-        const roomImageDataURL = await toDataURL(state.roomImage, 512);
-        const payload={ messages:[{role:'user',content:userText||'Detect the floor polygon'}], roomImageDataURL, textureUrl: state.textureUrl || '', hintQuad: hint ? hint.map(p=>({x:p.x, y:p.y})) : null };
-        const resp=await fetch('/.netlify/functions/floor-chat',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-        const text = await resp.text(); let data={}; try{ data=JSON.parse(text); }catch(_){};
-        if(!resp.ok){ const msg=data?.error || text || ('HTTP '+resp.status); if(resp.status===429){ const retry=(data && data.retryAfterSeconds)?data.retryAfterSeconds:18000; setCooldown(retry); } throw new Error(msg); }
-        if(Array.isArray(data.actions)) data.actions.forEach(runAction);
-        if (data.text) tip(data.text);
-      }catch(e){
-        const msg=String(e?.message||e); log('AI failed: '+msg);
-        tip('AI unavailable, using Auto‑detect.'); autoDetectFloor();
-      }
-    }
-
-    // quad helpers and auto-fit
-    function normalizeQuad(q){
-      if (!Array.isArray(q) || q.length !== 4) return null;
-      const xs=q.map(p=>+p.x), ys=q.map(p=>+p.y);
-      const maxX=Math.max.apply(null,xs), maxY=Math.max.apply(null,ys);
-      if (maxX<=1.5 && maxY<=1.5) return q.map(p=>({x:clamp01(+p.x), y:clamp01(+p.y)}));
-      if (maxX<=100.5 && maxY<=100.5) return q.map(p=>({x:clamp01(+p.x/100), y:clamp01(+p.y/100)}));
-      const W=gc.width,H=gc.height; return q.map(p=>({x:clamp01(+p.x/W), y:clamp01(+p.y/H)}));
-    }
-    function imageToCanvasNorm(p){
-      const W = gc.width, H = gc.height;
-      const rr = state.roomRect || {x:0,y:0,w:W,h:H};
-      const cx = (rr.x + p.x * rr.w) / W;
-      const cy = (rr.y + p.y * rr.h) / H;
-      return { x: clamp01(cx), y: clamp01(cy) };
-    }
-    function sortQuadClockwise(q){
-      const pts = q.map(p=>({x:p.x, y:p.y}));
-      pts.sort((a,b)=> a.y===b.y ? a.x-b.x : a.y-b.y);
-      const top = pts.slice(0,2).sort((a,b)=>a.x-b.x);
-      const bottom = pts.slice(2).sort((a,b)=>a.x-b.x);
-      return [ top[0], top[1], bottom[1], bottom[0] ];
-    }
-    function clamp01(x){ return Math.max(0,Math.min(1,x)); }
-
-    function autoFitTexture(){
-      const W = gc.width, H = gc.height;
-      const qpx = state.quad.map(p=>({x:p.x*W, y:p.y*H}));
-      const topAngle = Math.atan2(qpx[1].y - qpx[0].y, qpx[1].x - qpx[0].x) * 180/Math.PI;
-      const boardDeg = detectBoardAngle();
-      if (boardDeg != null && isFinite(boardDeg)){
-        let rot = boardDeg - topAngle;
-        while(rot>180) rot-=360; while(rot<-180) rot+=360;
-        if (rot > 90) rot -= 180;
-        if (rot < -90) rot += 180;
-        state.rotationDeg = Math.max(-90, Math.min(90, rot));
-      }
-      const bottomLen = Math.hypot(qpx[2].x - qpx[3].x, qpx[2].y - qpx[3].y);
-      const targetRepeats = Math.max(7, Math.min(14, Math.round(bottomLen / 120)));
-      state.scale = targetRepeats;
-      $('sv').textContent = state.scale.toFixed(2);
-      $('rv').textContent = state.rotationDeg.toFixed(1)+'°';
-      mesh=null;
-    }
-
-    function detectBoardAngle(){
-      if (!state.roomImage) return null;
-      const W = rc.width, H = rc.height;
-      const DOWN = 320; const s = Math.min(1, DOWN / Math.max(W,H));
-      const sw = Math.max(64, Math.round(W*s)), sh = Math.max(64, Math.round(H*s));
-      const c=document.createElement('canvas'); c.width=sw; c.height=sh; const cx=c.getContext('2d'); cx.drawImage(rc, 0, 0, sw, sh);
-      const img=cx.getImageData(0,0,sw,sh), d=img.data;
-      const gx = new Float32Array(sw*sh), gy = new Float32Array(sw*sh), mag = new Float32Array(sw*sh);
-      const q = state.quad.map(p=>({x:p.x*W*s, y:p.y*H*s}));
-      const getGray = (x,y)=>{ const i=(y*sw + x)*4; return d[i]*.299 + d[i+1]*.587 + d[i+2]*.114; };
-      function pointInPoly(pt, poly){
-        let inside=false;
-        for(let i=0,j=poly.length-1;i<poly.length;j=i++){
-          const xi=poly[i].x, yi=poly[i].y, xj=poly[j].x, yj=poly[j].y;
-          const intersect=((yi>pt.y)!=(yj>pt.y)) && (pt.x < (xj-xi)*(pt.y-yi)/(yj-yi+1e-6)+xi);
-          if(intersect) inside=!inside;
-        }
-        return inside;
-      }
-      for(let y=1;y<sh-1;y++){
-        for(let x=1;x<sw-1;x++){
-          const p={x,y}; if(!pointInPoly(p,q)) continue;
-          const tl=getGray(x-1,y-1), tc=getGray(x,y-1), tr=getGray(x+1,y-1);
-          const ml=getGray(x-1,y  ),               mr=getGray(x+1,y  );
-          const bl=getGray(x-1,y+1), bc=getGray(x,y+1), br=getGray(x+1,y+1);
-          const sx = -tl + tr - 2*ml + 2*mr - bl + br;
-          const sy =  tl + 2*tc + tr - bl - 2*bc - br;
-          const idx=y*sw+x; gx[idx]=sx; gy[idx]=sy; mag[idx]=Math.hypot(sx,sy);
-        }
-      }
-      const bins=90; const hist=new Float32Array(bins);
-      for(let i=0;i<mag.length;i++){
-        const m=mag[i]; if(m<5) continue;
-        let ang=Math.atan2(gy[i], gx[i]);
-        if(ang<0) ang+=Math.PI*2; if(ang>Math.PI) ang-=Math.PI;
-        const b=Math.min(bins-1, Math.floor(ang/Math.PI*bins)); hist[b]+=m;
-      }
-      let bi=0, best=-1; for(let i=0;i<bins;i++){ if(hist[i]>best){best=hist[i]; bi=i;} }
-      if(best<=0) return null;
-      const angle = (bi + 0.5) * (Math.PI / bins);
-      const boardDir = angle + Math.PI/2;
-      let deg = boardDir * 180/Math.PI; while(deg>180) deg-=360; while(deg<-180) deg+=360;
-      return deg;
-    }
-
-    // runAction
-    function runAction(action){
-      const a=action?.arguments||{}; log('AI action\\n'+JSON.stringify(a,null,2));
-      if (Array.isArray(a.floorQuad) && a.floorQuad.length===4){
-        let q = normalizeQuad(a.floorQuad);
-        if (q){ q = q.map(imageToCanvasNorm); q = sortQuadClockwise(q); }
-        if (q && !isBadQuad(q)) { state.quad = q; }
-        else { tip('AI returned a coarse box; using refined fallback.'); const h=getCoarseQuad(); if(h) state.quad=h; }
-        syncHandles(); mesh=null;
-      }
-      if (typeof a.scale==='number') state.scale=a.scale;
-      if (typeof a.rotationDegrees==='number') state.rotationDeg=a.rotationDegrees;
-      if (a.orientation) state.orientation=(a.orientation==='vertical')?'vertical':'horizontal';
-      if (a.textureUrl){ state.textureUrl=String(a.textureUrl); loadImageURL(state.textureUrl).then(img=>{ state.plankImage=img; buildPlankAssets(); render(); }); }
-      $('sv').textContent=state.scale.toFixed(2); $('rv').textContent=state.rotationDeg.toFixed(1)+'°';
-      autoFitTexture(); render();
-    }
-
-    function toDataURL(img, maxSide){
-      return new Promise((resolve)=>{
-        const w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
-        const MAX = maxSide || 512; const s=Math.min(1, MAX/Math.max(w,h));
-        const c=document.createElement('canvas'); c.width=Math.round(w*s); c.height=Math.round(h*s);
-        c.getContext('2d').drawImage(img,0,0,c.width,c.height);
-        resolve(c.toDataURL('image/jpeg',0.9));
-      });
-    }
-
-    function drawSelfTest(){
-      const c=document.createElement('canvas'); c.width=1024; c.height=768; const cx=c.getContext('2d');
-      cx.fillStyle='#e9edf7'; cx.fillRect(0,0,1024,480); cx.fillStyle='#b99774'; cx.fillRect(0,480,1024,288);
-      const img=new Image(); img.onload=()=>{ state.roomImage=img; drawRoom(); mesh=null; render(); tip('Self-test drawn'); }; img.src=c.toDataURL('image/png');
-    }
-
-    // boot
-    function ensureReady(){
-      const r=wrap.getBoundingClientRect(); rc.width=r.width; rc.height=r.height; gc.width=r.width; gc.height=r.height;
-      if(gl){ buildLightTexture(); }
-      restoreCooldown();
-      syncHandles(); drawRoom(); render();
-      log('Boot ✓\\nMode: '+(gl?'WebGL':'2D fallback')+'\\nCanvas: '+gc.width+'×'+gc.height);
-    }
-    if(document.readyState!=='loading'){ ensureReady(); } else { window.addEventListener('DOMContentLoaded', ensureReady); }
-  })();
-  </script>
-</body>
-</html>
+  function boot(){ const r=$('wrap').getBoundingClientRect(); room.width=r.width; room.height=r.height; out.width=r.width; out.height=r.height; drawRoom(); render(); syncHandles(); log('Boot ✓'); }
+  if(document.readyState!='loading') boot(); else window.addEventListener('DOMContentLoaded', boot);
+})();
+</script>
+</body></html>
